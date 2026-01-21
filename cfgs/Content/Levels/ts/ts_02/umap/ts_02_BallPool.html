@@ -1,0 +1,2209 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVG Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #toolbar {
+      background: #2d2d2d;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #444;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #toolbar .group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #toolbar label {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #toolbar button {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    #toolbar button:hover {
+      background: #555;
+    }
+
+    #toolbar button:active {
+      background: #666;
+    }
+
+    #file-input {
+      font-size: 13px;
+    }
+
+    .examples-select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .examples-select:hover {
+      background: #555;
+    }
+
+    #zoom-level {
+      min-width: 50px;
+      text-align: center;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #search-input {
+      background: #333;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      width: 200px;
+    }
+
+    #search-input:focus {
+      outline: none;
+      border-color: #0078d4;
+    }
+
+    #search-input.invalid {
+      border-color: #d32f2f;
+      background: #3d2020;
+    }
+
+    #search-info {
+      font-size: 13px;
+      color: #aaa;
+      min-width: 60px;
+    }
+
+    #viewport {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      touch-action: pan-x pan-y;
+      cursor: grab;
+    }
+
+    #viewport.panning {
+      cursor: grabbing;
+    }
+
+    #svg-container text {
+      cursor: text;
+    }
+
+    #svg-wrapper {
+      display: inline-block;
+      /* Padding allows SVG to be scrolled/centered even when zoomed out */
+    }
+
+    #svg-container {
+      transform-origin: 0 0;
+      display: inline-block;
+    }
+
+    #svg-container svg {
+      display: block;
+    }
+
+    /* Dark mode for SVG - invert with reduced contrast */
+    #svg-container.dark-mode svg {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    /* Toggle button active state */
+    #toolbar button.active {
+      background: #0078d4;
+      border-color: #0078d4;
+    }
+
+    #toolbar button.active:hover {
+      background: #1084d8;
+    }
+
+    /* Search highlight styling - SVG rect fallback */
+    .search-highlight {
+      fill: #22ee22;
+      stroke: #00aa00;
+      stroke-width: 1;
+      pointer-events: none;
+    }
+
+    .search-highlight.current {
+      fill: #ff22ff;
+      stroke: #cc00cc;
+      stroke-width: 2;
+    }
+
+    /* CSS Custom Highlight API styling */
+    ::highlight(search-results) {
+      background-color: #22ee22;
+      color: black;
+    }
+
+    ::highlight(search-current) {
+      background-color: #ff22ff;
+      color: black;
+    }
+
+    #hint {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    #hint kbd {
+      background: #444;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: inherit;
+      margin: 0 2px;
+    }
+
+    /* Hide hint on mobile/touch devices */
+    @media (hover: none),
+    (max-width: 768px) {
+      #hint {
+        display: none;
+      }
+    }
+
+    /* Minimap */
+    #minimap {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      width: 400px;
+      max-height: 600px;
+      background: #2d2d2d;
+      border: 1px solid #444;
+      border-radius: 6px;
+      overflow: hidden;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    #minimap.visible {
+      display: block;
+    }
+
+    #minimap-content {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #minimap-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #minimap-viewport {
+      position: absolute;
+      border: 2px solid #0078d4;
+      background: rgba(0, 120, 212, 0.15);
+      cursor: move;
+      pointer-events: auto;
+    }
+
+    #minimap-content.dark-mode #minimap-canvas {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    #drop-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 120, 212, 0.2);
+      border: 3px dashed #0078d4;
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #0078d4;
+    }
+
+    #drop-overlay.active {
+      display: flex;
+    }
+
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      gap: 16px;
+    }
+
+    #empty-state.hidden {
+      display: none;
+    }
+
+    #empty-state .empty-title {
+      font-size: 32px;
+      font-weight: 600;
+      color: #ccc;
+    }
+
+    #empty-state .empty-subtitle {
+      font-size: 18px;
+      color: #666;
+    }
+
+    #empty-state .empty-divider {
+      font-size: 14px;
+      color: #555;
+      margin: 8px 0;
+    }
+
+    #empty-state .empty-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    #empty-state button,
+    #empty-state select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #empty-state button:hover,
+    #empty-state select:hover {
+      background: #555;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="toolbar">
+    <div class="group">
+      <input type="file" id="file-input" accept=".svg">
+      <select class="examples-select" title="Load example SVG">
+        <option value="">Examples...</option>
+      </select>
+    </div>
+    <div class="group">
+      <button id="zoom-out" title="Zoom out (-)">-</button>
+      <span id="zoom-level">100%</span>
+      <button id="zoom-in" title="Zoom in (+)">+</button>
+      <button id="zoom-reset" title="Reset zoom (0)">Reset</button>
+    </div>
+    <div class="group">
+      <button id="dark-mode-toggle" title="Toggle dark mode for SVG (D)">Dark Mode</button>
+      <button id="minimap-toggle" title="Toggle minimap (M)">Minimap</button>
+    </div>
+    <div class="group">
+      <input type="search" id="search-input" placeholder="Regex search...">
+      <button id="search-prev" title="Previous match (Shift+Enter)">Prev</button>
+      <span id="search-info">0 / 0</span>
+      <button id="search-next" title="Next match (Enter)">Next</button>
+    </div>
+  </div>
+
+  <div id="empty-state">
+    <div class="empty-title">SVG Viewer</div>
+    <div class="empty-subtitle">Drop an SVG file here</div>
+    <div class="empty-divider">or</div>
+    <div class="empty-actions">
+      <button id="empty-file-btn">Choose File</button>
+      <select class="examples-select">
+        <option value="">Load Example...</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="viewport" style="display: none;">
+    <div id="svg-wrapper">
+      <div id="svg-container"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 14.1.1 (20251213.1925)
+ -->
+<!-- Pages: 1 -->
+<svg width="7052pt" height="747pt"
+ viewBox="0.00 0.00 7052.00 747.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 742.5)">
+<polygon fill="white" stroke="none" points="-4,4 -4,-742.5 7048.48,-742.5 7048.48,4 -4,4"/>
+<!-- ts_02_BallPool_C -->
+<g id="node1" class="node">
+<title>ts_02_BallPool_C</title>
+<polygon fill="#d4ffd4" stroke="none" points="8,-658 8,-734 525.5,-734 525.5,-658 8,-658"/>
+<polygon fill="none" stroke="black" points="8,-658 8,-734 525.5,-734 525.5,-658 8,-658"/>
+<text xml:space="preserve" text-anchor="start" x="11" y="-718.7" font-family="monospace" font-size="14.00" fill="#800080">ClassExport:</text>
+<text xml:space="preserve" text-anchor="start" x="110" y="-718.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="118.25" y="-718.7" font-family="monospace" font-size="14.00" fill="#996300">ts_02_BallPool_C</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-704.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-704.7" font-family="monospace" font-size="14.00" fill="#800080">SuperStruct:</text>
+<text xml:space="preserve" text-anchor="start" x="126.5" y="-704.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="151.25" y="-704.7" font-family="monospace" font-size="14.00" fill="#996300">import /Script/TresGame&#45;&gt;TresLevelScriptActor</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-690.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-690.7" font-family="monospace" font-size="14.00" fill="#800080">Properties:</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-676.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="44" y="-676.7" font-family="monospace" font-size="14.00" fill="#996300">Struct</text>
+<text xml:space="preserve" text-anchor="start" x="93.5" y="-676.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="134.75" y="-676.7" font-family="monospace" font-size="14.00" fill="#006400">UberGraphFrame</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-662.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="60.5" y="-662.7" font-family="monospace" font-size="14.00" fill="#800080">CPF_Transient|CPF_DuplicateTransient</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool -->
+<g id="node2" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool</title>
+<polygon fill="#ffd4d4" stroke="none" points="548.88,-686.5 548.88,-734.5 1008.62,-734.5 1008.62,-686.5 548.88,-686.5"/>
+<polygon fill="none" stroke="black" points="548.88,-686.5 548.88,-734.5 1008.62,-734.5 1008.62,-686.5 548.88,-686.5"/>
+<text xml:space="preserve" text-anchor="start" x="551.88" y="-719.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="617.88" y="-719.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="626.12" y="-719.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_ts_02_BallPool</text>
+<text xml:space="preserve" text-anchor="start" x="551.88" y="-705.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="568.38" y="-705.2" font-family="monospace" font-size="14.00" fill="#996300">Int</text>
+<text xml:space="preserve" text-anchor="start" x="593.12" y="-705.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="617.88" y="-705.2" font-family="monospace" font-size="14.00" fill="#006400">EntryPoint</text>
+<text xml:space="preserve" text-anchor="start" x="551.88" y="-691.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="584.88" y="-691.2" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_0 -->
+<g id="node3" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="557.12,-586 557.12,-642.5 1000.38,-642.5 1000.38,-586 557.12,-586"/>
+<polygon fill="none" stroke="black" points="557.12,-620 557.12,-642.5 1000.38,-642.5 1000.38,-620 557.12,-620"/>
+<text xml:space="preserve" text-anchor="start" x="560.12" y="-626.2" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ExecuteUbergraph_ts_02_BallPool @ 0</text>
+<polygon fill="none" stroke="black" points="557.12,-586 557.12,-620 1000.38,-620 1000.38,-586 557.12,-586"/>
+<text xml:space="preserve" text-anchor="start" x="560.12" y="-604.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="584.88" y="-604.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ComputedJump</text>
+<text xml:space="preserve" text-anchor="start" x="560.12" y="-590.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1: </text>
+<text xml:space="preserve" text-anchor="start" x="584.88" y="-590.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="601.38" y="-590.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="733.38" y="-590.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="741.62" y="-590.7" font-family="monospace" font-size="14.00" fill="#006400">EntryPoint</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_0 -->
+<g id="edge1" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_0:n</title>
+<path fill="none" stroke="black" d="M778.75,-682.52C778.75,-674.86 778.75,-666.29 778.75,-657.84"/>
+<polygon fill="black" stroke="black" points="782.25,-658.01 778.75,-648.01 775.25,-658.01 782.25,-658.01"/>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_539 -->
+<g id="node4" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool__block_539</title>
+<polygon fill="#eeeeee" stroke="none" points="4950.88,-4 4950.88,-60.5 5410.62,-60.5 5410.62,-4 4950.88,-4"/>
+<polygon fill="none" stroke="black" points="4950.88,-38 4950.88,-60.5 5410.62,-60.5 5410.62,-38 4950.88,-38"/>
+<text xml:space="preserve" text-anchor="start" x="4953.88" y="-44.2" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ExecuteUbergraph_ts_02_BallPool @ 539</text>
+<polygon fill="none" stroke="black" points="4950.88,-4 4950.88,-38 5410.62,-38 5410.62,-4 4950.88,-4"/>
+<text xml:space="preserve" text-anchor="start" x="4953.88" y="-22.7" font-family="monospace" font-size="14.00" fill="#555555">539: </text>
+<text xml:space="preserve" text-anchor="start" x="4995.12" y="-22.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="4953.88" y="-8.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">540: </text>
+<text xml:space="preserve" text-anchor="start" x="4995.12" y="-8.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5011.62" y="-8.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_75 -->
+<g id="node5" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool__block_75</title>
+<polygon fill="#eeeeee" stroke="none" points="6285.87,-153.5 6285.87,-238 6943.62,-238 6943.62,-153.5 6285.87,-153.5"/>
+<polygon fill="none" stroke="black" points="6285.87,-215.5 6285.87,-238 6943.62,-238 6943.62,-215.5 6285.87,-215.5"/>
+<text xml:space="preserve" text-anchor="start" x="6392" y="-221.7" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ExecuteUbergraph_ts_02_BallPool @ 75</text>
+<polygon fill="none" stroke="black" points="6285.87,-153.5 6285.87,-215.5 6943.62,-215.5 6943.62,-153.5 6285.87,-153.5"/>
+<text xml:space="preserve" text-anchor="start" x="6288.87" y="-200.2" font-family="monospace" font-size="14.00" fill="#555555">75: </text>
+<text xml:space="preserve" text-anchor="start" x="6321.87" y="-200.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6288.87" y="-186.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">76: </text>
+<text xml:space="preserve" text-anchor="start" x="6321.87" y="-186.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6338.37" y="-186.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6495.12" y="-186.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6503.37" y="-186.2" font-family="monospace" font-size="14.00" fill="#006400">Task</text>
+<text xml:space="preserve" text-anchor="start" x="6288.87" y="-172.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">97: </text>
+<text xml:space="preserve" text-anchor="start" x="6321.87" y="-172.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6338.37" y="-172.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6470.37" y="-172.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6478.62" y="-172.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresBallPoolManageTask&#45;&gt;Respawn</text>
+<text xml:space="preserve" text-anchor="start" x="6288.87" y="-158.2" font-family="monospace" font-size="14.00" fill="#555555">107: </text>
+<text xml:space="preserve" text-anchor="start" x="6330.12" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="6387.87" y="-158.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6396.12" y="-158.2" font-family="monospace" font-size="14.00" fill="#555555">539</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_75&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539 -->
+<g id="edge2" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool__block_75&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539:n</title>
+<path fill="none" stroke="black" d="M6475.82,-149.58C6411.94,-130.85 6334.74,-111.07 6263.75,-100.5 6235.69,-96.32 5298.72,-94.78 5190.84,-69.42"/>
+<polygon fill="black" stroke="black" points="5192.63,-66.4 5182.11,-65.16 5189.56,-72.69 5192.63,-66.4"/>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_177 -->
+<g id="node6" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool__block_177</title>
+<polygon fill="#eeeeee" stroke="none" points="5630,-153.5 5630,-238 6213.5,-238 6213.5,-153.5 5630,-153.5"/>
+<polygon fill="none" stroke="black" points="5630,-215.5 5630,-238 6213.5,-238 6213.5,-215.5 5630,-215.5"/>
+<text xml:space="preserve" text-anchor="start" x="5694.88" y="-221.7" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ExecuteUbergraph_ts_02_BallPool @ 177</text>
+<polygon fill="none" stroke="black" points="5630,-153.5 5630,-215.5 6213.5,-215.5 6213.5,-153.5 5630,-153.5"/>
+<text xml:space="preserve" text-anchor="start" x="5633" y="-200.2" font-family="monospace" font-size="14.00" fill="#555555">177: </text>
+<text xml:space="preserve" text-anchor="start" x="5674.25" y="-200.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="5633" y="-186.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">178: </text>
+<text xml:space="preserve" text-anchor="start" x="5674.25" y="-186.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5690.75" y="-186.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="5847.5" y="-186.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5855.75" y="-186.2" font-family="monospace" font-size="14.00" fill="#006400">Task</text>
+<text xml:space="preserve" text-anchor="start" x="5633" y="-172.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">199: </text>
+<text xml:space="preserve" text-anchor="start" x="5674.25" y="-172.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5690.75" y="-172.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="5822.75" y="-172.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5831" y="-172.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresTaskBase&#45;&gt;Destroy</text>
+<text xml:space="preserve" text-anchor="start" x="5633" y="-158.2" font-family="monospace" font-size="14.00" fill="#555555">209: </text>
+<text xml:space="preserve" text-anchor="start" x="5674.25" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="5732" y="-158.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5740.25" y="-158.2" font-family="monospace" font-size="14.00" fill="#555555">539</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_177&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539 -->
+<g id="edge3" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool__block_177&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539:n</title>
+<path fill="none" stroke="black" d="M5795.92,-149.57C5740.71,-131.5 5674.7,-112.22 5613.75,-100.5 5569.86,-92.06 5236.12,-109.77 5186.83,-74.14"/>
+<polygon fill="black" stroke="black" points="5189.85,-72.37 5181.56,-65.78 5183.93,-76.11 5189.85,-72.37"/>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_10 -->
+<g id="node7" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool__block_10</title>
+<polygon fill="#eeeeee" stroke="none" points="6318.25,-338 6318.25,-478.5 6951.25,-478.5 6951.25,-338 6318.25,-338"/>
+<polygon fill="none" stroke="black" points="6318.25,-456 6318.25,-478.5 6951.25,-478.5 6951.25,-456 6318.25,-456"/>
+<text xml:space="preserve" text-anchor="start" x="6412" y="-462.2" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ExecuteUbergraph_ts_02_BallPool @ 10</text>
+<polygon fill="none" stroke="black" points="6318.25,-338 6318.25,-456 6951.25,-456 6951.25,-338 6318.25,-338"/>
+<text xml:space="preserve" text-anchor="start" x="6321.25" y="-440.7" font-family="monospace" font-size="14.00" fill="#555555">10: </text>
+<text xml:space="preserve" text-anchor="start" x="6354.25" y="-440.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="6321.25" y="-426.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">11: </text>
+<text xml:space="preserve" text-anchor="start" x="6354.25" y="-426.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6370.75" y="-426.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6502.75" y="-426.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6511" y="-426.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="6321.25" y="-412.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="6354.25" y="-412.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6370.75" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6321.25" y="-398.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">21: </text>
+<text xml:space="preserve" text-anchor="start" x="6354.25" y="-398.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6387.25" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="6502.75" y="-398.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6511" y="-398.7" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__KismetSystemLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="6321.25" y="-384.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">42: </text>
+<text xml:space="preserve" text-anchor="start" x="6354.25" y="-384.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6387.25" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6519.25" y="-384.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6527.5" y="-384.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetSystemLibrary&#45;&gt;IsValid</text>
+<text xml:space="preserve" text-anchor="start" x="6321.25" y="-370.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">51: </text>
+<text xml:space="preserve" text-anchor="start" x="6354.25" y="-370.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6403.75" y="-370.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6560.5" y="-370.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6568.75" y="-370.7" font-family="monospace" font-size="14.00" fill="#006400">Task</text>
+<text xml:space="preserve" text-anchor="start" x="6321.25" y="-356.7" font-family="monospace" font-size="14.00" fill="#555555">61: </text>
+<text xml:space="preserve" text-anchor="start" x="6354.25" y="-356.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="6453.25" y="-356.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6461.5" y="-356.7" font-family="monospace" font-size="14.00" fill="#555555">539</text>
+<text xml:space="preserve" text-anchor="start" x="6321.25" y="-342.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">66: </text>
+<text xml:space="preserve" text-anchor="start" x="6354.25" y="-342.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6370.75" y="-342.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6502.75" y="-342.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6511" y="-342.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue2</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_10&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539 -->
+<g id="edge4" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool__block_10:e&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539:n</title>
+<path fill="none" stroke="red" d="M6959.94,-408.25C7013.14,-408.25 7044.48,-185.94 6960.75,-100.5 6927.66,-66.73 5330.85,-109.83 5190.57,-70.47"/>
+<polygon fill="none" stroke="red" points="5192.41,-67.49 5182.04,-65.29 5188.77,-73.47 5192.41,-67.49"/>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_10&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_75 -->
+<g id="edge5" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool__block_10&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_75:n</title>
+<path fill="none" stroke="green" d="M6622.03,-334.19C6618.58,-309.3 6615.59,-280.97 6614.9,-254.14"/>
+<polygon fill="green" stroke="green" points="6618.4,-254.21 6614.77,-244.26 6611.4,-254.3 6618.4,-254.21"/>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_534 -->
+<g id="node8" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool__block_534</title>
+<polygon fill="#eeeeee" stroke="none" points="5601.12,-331 5601.12,-485.5 6242.38,-485.5 6242.38,-331 5601.12,-331"/>
+<polygon fill="none" stroke="black" points="5601.12,-463 5601.12,-485.5 6242.38,-485.5 6242.38,-463 5601.12,-463"/>
+<text xml:space="preserve" text-anchor="start" x="5694.88" y="-469.2" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ExecuteUbergraph_ts_02_BallPool @ 534</text>
+<polygon fill="none" stroke="black" points="5601.12,-331 5601.12,-463 6242.38,-463 6242.38,-331 5601.12,-331"/>
+<text xml:space="preserve" text-anchor="start" x="5604.12" y="-447.7" font-family="monospace" font-size="14.00" fill="#555555">534: </text>
+<text xml:space="preserve" text-anchor="start" x="5645.38" y="-447.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="5703.12" y="-447.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5711.38" y="-447.7" font-family="monospace" font-size="14.00" fill="#555555">112</text>
+<text xml:space="preserve" text-anchor="start" x="5604.12" y="-433.7" font-family="monospace" font-size="14.00" fill="#555555">112: </text>
+<text xml:space="preserve" text-anchor="start" x="5645.38" y="-433.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="5604.12" y="-419.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">113: </text>
+<text xml:space="preserve" text-anchor="start" x="5645.38" y="-419.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5661.88" y="-419.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="5793.88" y="-419.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5802.12" y="-419.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="5604.12" y="-405.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">122: </text>
+<text xml:space="preserve" text-anchor="start" x="5645.38" y="-405.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5661.88" y="-405.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="5604.12" y="-391.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">123: </text>
+<text xml:space="preserve" text-anchor="start" x="5645.38" y="-391.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5678.38" y="-391.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="5793.88" y="-391.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5802.12" y="-391.7" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__KismetSystemLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="5604.12" y="-377.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">144: </text>
+<text xml:space="preserve" text-anchor="start" x="5645.38" y="-377.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5678.38" y="-377.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="5810.38" y="-377.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5818.62" y="-377.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetSystemLibrary&#45;&gt;IsValid</text>
+<text xml:space="preserve" text-anchor="start" x="5604.12" y="-363.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">153: </text>
+<text xml:space="preserve" text-anchor="start" x="5645.38" y="-363.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5694.88" y="-363.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="5851.62" y="-363.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5859.88" y="-363.7" font-family="monospace" font-size="14.00" fill="#006400">Task</text>
+<text xml:space="preserve" text-anchor="start" x="5604.12" y="-349.7" font-family="monospace" font-size="14.00" fill="#555555">163: </text>
+<text xml:space="preserve" text-anchor="start" x="5645.38" y="-349.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="5744.38" y="-349.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5752.62" y="-349.7" font-family="monospace" font-size="14.00" fill="#555555">539</text>
+<text xml:space="preserve" text-anchor="start" x="5604.12" y="-335.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">168: </text>
+<text xml:space="preserve" text-anchor="start" x="5645.38" y="-335.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5661.88" y="-335.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="5793.88" y="-335.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5802.12" y="-335.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_534&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539 -->
+<g id="edge6" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool__block_534:e&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539:n</title>
+<path fill="none" stroke="red" d="M6251.06,-408.25C6263.67,-408.25 6263.33,-131.46 6230.75,-100.5 6190.63,-62.37 5282.48,-116.67 5188.57,-72.62"/>
+<polygon fill="none" stroke="red" points="5191.26,-70.36 5181.8,-65.59 5186.22,-75.22 5191.26,-70.36"/>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_534&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_177 -->
+<g id="edge7" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool__block_534&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_177:n</title>
+<path fill="none" stroke="green" d="M5921.75,-327.3C5921.75,-304.08 5921.75,-278.42 5921.75,-254.09"/>
+<polygon fill="green" stroke="green" points="5925.25,-254.17 5921.75,-244.17 5918.25,-254.17 5925.25,-254.17"/>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_458 -->
+<g id="node9" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool__block_458</title>
+<polygon fill="#eeeeee" stroke="none" points="4765.25,-104.5 4765.25,-287 5596.25,-287 5596.25,-104.5 4765.25,-104.5"/>
+<polygon fill="none" stroke="black" points="4765.25,-264.5 4765.25,-287 5596.25,-287 5596.25,-264.5 4765.25,-264.5"/>
+<text xml:space="preserve" text-anchor="start" x="4953.88" y="-270.7" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ExecuteUbergraph_ts_02_BallPool @ 458</text>
+<polygon fill="none" stroke="black" points="4765.25,-104.5 4765.25,-264.5 5596.25,-264.5 5596.25,-104.5 4765.25,-104.5"/>
+<text xml:space="preserve" text-anchor="start" x="4768.25" y="-249.2" font-family="monospace" font-size="14.00" fill="#555555">458: </text>
+<text xml:space="preserve" text-anchor="start" x="4809.5" y="-249.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4768.25" y="-235.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">459: </text>
+<text xml:space="preserve" text-anchor="start" x="4809.5" y="-235.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4826" y="-235.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="4941.5" y="-235.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4949.75" y="-235.2" font-family="monospace" font-size="14.00" fill="#006400">import /Script/TresGame&#45;&gt;Default__TresGameBlueprintLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="4768.25" y="-221.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">480: </text>
+<text xml:space="preserve" text-anchor="start" x="4809.5" y="-221.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4826" y="-221.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4958" y="-221.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4966.25" y="-221.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGameBlueprintLibrary&#45;&gt;CreateTresTaskGameMode</text>
+<text xml:space="preserve" text-anchor="start" x="4768.25" y="-207.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">489: </text>
+<text xml:space="preserve" text-anchor="start" x="4809.5" y="-207.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4842.5" y="-207.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="4768.25" y="-193.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">490: </text>
+<text xml:space="preserve" text-anchor="start" x="4809.5" y="-193.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4842.5" y="-193.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4974.5" y="-193.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4982.75" y="-193.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_CreateTresTaskGameMode_Out</text>
+<text xml:space="preserve" text-anchor="start" x="4768.25" y="-179.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">499: </text>
+<text xml:space="preserve" text-anchor="start" x="4809.5" y="-179.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4842.5" y="-179.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="4958" y="-179.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4966.25" y="-179.2" font-family="monospace" font-size="14.00" fill="#006400">import /Game/Blueprints/Level/ts/task/BP_TsBallPoolTask&#45;&gt;BP_TsBallPoolTask_C</text>
+<text xml:space="preserve" text-anchor="start" x="4768.25" y="-165.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">508: </text>
+<text xml:space="preserve" text-anchor="start" x="4809.5" y="-165.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4842.5" y="-165.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="4768.25" y="-151.2" font-family="monospace" font-size="14.00" fill="#555555">510: </text>
+<text xml:space="preserve" text-anchor="start" x="4809.5" y="-151.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetObj</text>
+<text xml:space="preserve" text-anchor="start" x="4768.25" y="-137.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">511: </text>
+<text xml:space="preserve" text-anchor="start" x="4809.5" y="-137.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4826" y="-137.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4982.75" y="-137.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4991" y="-137.2" font-family="monospace" font-size="14.00" fill="#006400">Task</text>
+<text xml:space="preserve" text-anchor="start" x="4768.25" y="-123.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">520: </text>
+<text xml:space="preserve" text-anchor="start" x="4809.5" y="-123.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4826" y="-123.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4958" y="-123.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4966.25" y="-123.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_CreateTresTaskGameMode_Out</text>
+<text xml:space="preserve" text-anchor="start" x="4768.25" y="-109.2" font-family="monospace" font-size="14.00" fill="#555555">529: </text>
+<text xml:space="preserve" text-anchor="start" x="4809.5" y="-109.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="4867.25" y="-109.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4875.5" y="-109.2" font-family="monospace" font-size="14.00" fill="#555555">539</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_458&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539 -->
+<g id="edge8" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool__block_458&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539:n</title>
+<path fill="none" stroke="black" d="M5180.75,-100.84C5180.75,-92.53 5180.75,-84.16 5180.75,-75.96"/>
+<polygon fill="black" stroke="black" points="5184.25,-76.01 5180.75,-66.01 5177.25,-76.01 5184.25,-76.01"/>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_397 -->
+<g id="node10" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool__block_397</title>
+<polygon fill="#eeeeee" stroke="none" points="3998.75,-125.5 3998.75,-266 4730.75,-266 4730.75,-125.5 3998.75,-125.5"/>
+<polygon fill="none" stroke="black" points="3998.75,-243.5 3998.75,-266 4730.75,-266 4730.75,-243.5 3998.75,-243.5"/>
+<text xml:space="preserve" text-anchor="start" x="4137.88" y="-249.7" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ExecuteUbergraph_ts_02_BallPool @ 397</text>
+<polygon fill="none" stroke="black" points="3998.75,-125.5 3998.75,-243.5 4730.75,-243.5 4730.75,-125.5 3998.75,-125.5"/>
+<text xml:space="preserve" text-anchor="start" x="4001.75" y="-228.2" font-family="monospace" font-size="14.00" fill="#555555">397: </text>
+<text xml:space="preserve" text-anchor="start" x="4043" y="-228.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="4001.75" y="-214.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">398: </text>
+<text xml:space="preserve" text-anchor="start" x="4043" y="-214.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4059.5" y="-214.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4191.5" y="-214.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4199.75" y="-214.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_RemoteEvent_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="4001.75" y="-200.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">407: </text>
+<text xml:space="preserve" text-anchor="start" x="4043" y="-200.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4059.5" y="-200.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4001.75" y="-186.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">408: </text>
+<text xml:space="preserve" text-anchor="start" x="4043" y="-186.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4076" y="-186.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="4191.5" y="-186.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4199.75" y="-186.2" font-family="monospace" font-size="14.00" fill="#006400">import /Script/TresGame&#45;&gt;Default__TresGameBlueprintLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="4001.75" y="-172.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">429: </text>
+<text xml:space="preserve" text-anchor="start" x="4043" y="-172.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4076" y="-172.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4208" y="-172.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4216.25" y="-172.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGameBlueprintLibrary&#45;&gt;RemoteEvent</text>
+<text xml:space="preserve" text-anchor="start" x="4001.75" y="-158.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">438: </text>
+<text xml:space="preserve" text-anchor="start" x="4043" y="-158.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4092.5" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="4001.75" y="-144.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">439: </text>
+<text xml:space="preserve" text-anchor="start" x="4043" y="-144.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4092.5" y="-144.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_NameConst</text>
+<text xml:space="preserve" text-anchor="start" x="4191.5" y="-144.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4199.75" y="-144.2" font-family="monospace" font-size="14.00" fill="#006400">ts_02_BallPool_ms201_REvt_EndSwing</text>
+<text xml:space="preserve" text-anchor="start" x="4001.75" y="-130.2" font-family="monospace" font-size="14.00" fill="#555555">453: </text>
+<text xml:space="preserve" text-anchor="start" x="4043" y="-130.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="4100.75" y="-130.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4109" y="-130.2" font-family="monospace" font-size="14.00" fill="#555555">539</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_397&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539 -->
+<g id="edge9" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool__block_397&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539:n</title>
+<path fill="none" stroke="black" d="M4640.54,-121.55C4676.76,-113.56 4713.52,-106.25 4748.75,-100.5 4792.76,-93.31 5125.54,-109.86 5174.69,-74.14"/>
+<polygon fill="black" stroke="black" points="5177.59,-76.11 5179.94,-65.78 5171.66,-72.39 5177.59,-76.11"/>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_336 -->
+<g id="node11" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool__block_336</title>
+<polygon fill="#eeeeee" stroke="none" points="3232.75,-125.5 3232.75,-266 3964.75,-266 3964.75,-125.5 3232.75,-125.5"/>
+<polygon fill="none" stroke="black" points="3232.75,-243.5 3232.75,-266 3964.75,-266 3964.75,-243.5 3232.75,-243.5"/>
+<text xml:space="preserve" text-anchor="start" x="3371.88" y="-249.7" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ExecuteUbergraph_ts_02_BallPool @ 336</text>
+<polygon fill="none" stroke="black" points="3232.75,-125.5 3232.75,-243.5 3964.75,-243.5 3964.75,-125.5 3232.75,-125.5"/>
+<text xml:space="preserve" text-anchor="start" x="3235.75" y="-228.2" font-family="monospace" font-size="14.00" fill="#555555">336: </text>
+<text xml:space="preserve" text-anchor="start" x="3277" y="-228.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="3235.75" y="-214.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">337: </text>
+<text xml:space="preserve" text-anchor="start" x="3277" y="-214.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3293.5" y="-214.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3425.5" y="-214.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3433.75" y="-214.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_RemoteEvent_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="3235.75" y="-200.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">346: </text>
+<text xml:space="preserve" text-anchor="start" x="3277" y="-200.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3293.5" y="-200.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="3235.75" y="-186.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">347: </text>
+<text xml:space="preserve" text-anchor="start" x="3277" y="-186.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3310" y="-186.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="3425.5" y="-186.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3433.75" y="-186.2" font-family="monospace" font-size="14.00" fill="#006400">import /Script/TresGame&#45;&gt;Default__TresGameBlueprintLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="3235.75" y="-172.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">368: </text>
+<text xml:space="preserve" text-anchor="start" x="3277" y="-172.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3310" y="-172.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3442" y="-172.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3450.25" y="-172.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGameBlueprintLibrary&#45;&gt;RemoteEvent</text>
+<text xml:space="preserve" text-anchor="start" x="3235.75" y="-158.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">377: </text>
+<text xml:space="preserve" text-anchor="start" x="3277" y="-158.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3326.5" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="3235.75" y="-144.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">378: </text>
+<text xml:space="preserve" text-anchor="start" x="3277" y="-144.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3326.5" y="-144.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_NameConst</text>
+<text xml:space="preserve" text-anchor="start" x="3425.5" y="-144.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3433.75" y="-144.2" font-family="monospace" font-size="14.00" fill="#006400">ts_02_BallPool_ms201_REvt_LeaveSwing</text>
+<text xml:space="preserve" text-anchor="start" x="3235.75" y="-130.2" font-family="monospace" font-size="14.00" fill="#555555">392: </text>
+<text xml:space="preserve" text-anchor="start" x="3277" y="-130.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="3334.75" y="-130.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3343" y="-130.2" font-family="monospace" font-size="14.00" fill="#555555">539</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_336&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539 -->
+<g id="edge10" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool__block_336&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539:n</title>
+<path fill="none" stroke="black" d="M3865.22,-121.55C3904.06,-113.11 3943.76,-105.69 3981.75,-100.5 4012.96,-96.24 5056.61,-97.64 5170.66,-69.66"/>
+<polygon fill="black" stroke="black" points="5172.09,-72.86 5179.4,-65.19 5168.91,-66.63 5172.09,-72.86"/>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_275 -->
+<g id="node12" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool__block_275</title>
+<polygon fill="#eeeeee" stroke="none" points="2413.75,-125.5 2413.75,-266 3145.75,-266 3145.75,-125.5 2413.75,-125.5"/>
+<polygon fill="none" stroke="black" points="2413.75,-243.5 2413.75,-266 3145.75,-266 3145.75,-243.5 2413.75,-243.5"/>
+<text xml:space="preserve" text-anchor="start" x="2552.88" y="-249.7" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ExecuteUbergraph_ts_02_BallPool @ 275</text>
+<polygon fill="none" stroke="black" points="2413.75,-125.5 2413.75,-243.5 3145.75,-243.5 3145.75,-125.5 2413.75,-125.5"/>
+<text xml:space="preserve" text-anchor="start" x="2416.75" y="-228.2" font-family="monospace" font-size="14.00" fill="#555555">275: </text>
+<text xml:space="preserve" text-anchor="start" x="2458" y="-228.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="2416.75" y="-214.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">276: </text>
+<text xml:space="preserve" text-anchor="start" x="2458" y="-214.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2474.5" y="-214.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2606.5" y="-214.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2614.75" y="-214.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_RemoteEvent_ReturnValue3</text>
+<text xml:space="preserve" text-anchor="start" x="2416.75" y="-200.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">285: </text>
+<text xml:space="preserve" text-anchor="start" x="2458" y="-200.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2474.5" y="-200.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="2416.75" y="-186.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">286: </text>
+<text xml:space="preserve" text-anchor="start" x="2458" y="-186.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2491" y="-186.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="2606.5" y="-186.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2614.75" y="-186.2" font-family="monospace" font-size="14.00" fill="#006400">import /Script/TresGame&#45;&gt;Default__TresGameBlueprintLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="2416.75" y="-172.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">307: </text>
+<text xml:space="preserve" text-anchor="start" x="2458" y="-172.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2491" y="-172.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2623" y="-172.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2631.25" y="-172.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGameBlueprintLibrary&#45;&gt;RemoteEvent</text>
+<text xml:space="preserve" text-anchor="start" x="2416.75" y="-158.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">316: </text>
+<text xml:space="preserve" text-anchor="start" x="2458" y="-158.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2507.5" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="2416.75" y="-144.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">317: </text>
+<text xml:space="preserve" text-anchor="start" x="2458" y="-144.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2507.5" y="-144.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_NameConst</text>
+<text xml:space="preserve" text-anchor="start" x="2606.5" y="-144.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2614.75" y="-144.2" font-family="monospace" font-size="14.00" fill="#006400">ts_02_BallPool_ms201_REvt_EntySwing</text>
+<text xml:space="preserve" text-anchor="start" x="2416.75" y="-130.2" font-family="monospace" font-size="14.00" fill="#555555">331: </text>
+<text xml:space="preserve" text-anchor="start" x="2458" y="-130.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="2515.75" y="-130.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2524" y="-130.2" font-family="monospace" font-size="14.00" fill="#555555">539</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_275&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539 -->
+<g id="edge11" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool__block_275&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539:n</title>
+<path fill="none" stroke="black" d="M3081.63,-121.55C3126.37,-113.02 3172.09,-105.57 3215.75,-100.5 3241.67,-97.49 5014.12,-92.28 5169.85,-67.97"/>
+<polygon fill="black" stroke="black" points="5170.84,-71.33 5179.31,-64.96 5168.72,-64.66 5170.84,-71.33"/>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_214 -->
+<g id="node13" class="node">
+<title>ExecuteUbergraph_ts_02_BallPool__block_214</title>
+<polygon fill="#eeeeee" stroke="none" points="1594.75,-125.5 1594.75,-266 2326.75,-266 2326.75,-125.5 1594.75,-125.5"/>
+<polygon fill="none" stroke="black" points="1594.75,-243.5 1594.75,-266 2326.75,-266 2326.75,-243.5 1594.75,-243.5"/>
+<text xml:space="preserve" text-anchor="start" x="1733.87" y="-249.7" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ExecuteUbergraph_ts_02_BallPool @ 214</text>
+<polygon fill="none" stroke="black" points="1594.75,-125.5 1594.75,-243.5 2326.75,-243.5 2326.75,-125.5 1594.75,-125.5"/>
+<text xml:space="preserve" text-anchor="start" x="1597.75" y="-228.2" font-family="monospace" font-size="14.00" fill="#555555">214: </text>
+<text xml:space="preserve" text-anchor="start" x="1639" y="-228.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="1597.75" y="-214.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">215: </text>
+<text xml:space="preserve" text-anchor="start" x="1639" y="-214.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1655.5" y="-214.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1787.5" y="-214.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1795.75" y="-214.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_RemoteEvent_ReturnValue4</text>
+<text xml:space="preserve" text-anchor="start" x="1597.75" y="-200.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">224: </text>
+<text xml:space="preserve" text-anchor="start" x="1639" y="-200.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1655.5" y="-200.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="1597.75" y="-186.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">225: </text>
+<text xml:space="preserve" text-anchor="start" x="1639" y="-186.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1672" y="-186.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="1787.5" y="-186.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1795.75" y="-186.2" font-family="monospace" font-size="14.00" fill="#006400">import /Script/TresGame&#45;&gt;Default__TresGameBlueprintLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="1597.75" y="-172.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">246: </text>
+<text xml:space="preserve" text-anchor="start" x="1639" y="-172.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1672" y="-172.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1804" y="-172.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1812.25" y="-172.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGameBlueprintLibrary&#45;&gt;RemoteEvent</text>
+<text xml:space="preserve" text-anchor="start" x="1597.75" y="-158.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">255: </text>
+<text xml:space="preserve" text-anchor="start" x="1639" y="-158.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1688.5" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="1597.75" y="-144.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">256: </text>
+<text xml:space="preserve" text-anchor="start" x="1639" y="-144.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1688.5" y="-144.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_NameConst</text>
+<text xml:space="preserve" text-anchor="start" x="1787.5" y="-144.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1795.75" y="-144.2" font-family="monospace" font-size="14.00" fill="#006400">ts_02_BallPool_ms201_REvt_BeginSwing</text>
+<text xml:space="preserve" text-anchor="start" x="1597.75" y="-130.2" font-family="monospace" font-size="14.00" fill="#555555">270: </text>
+<text xml:space="preserve" text-anchor="start" x="1639" y="-130.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="1696.75" y="-130.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1705" y="-130.2" font-family="monospace" font-size="14.00" fill="#555555">539</text>
+</g>
+<!-- ExecuteUbergraph_ts_02_BallPool__block_214&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539 -->
+<g id="edge12" class="edge">
+<title>ExecuteUbergraph_ts_02_BallPool__block_214&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_539:n</title>
+<path fill="none" stroke="black" d="M2261.72,-121.51C2306.74,-112.94 2352.79,-105.48 2396.75,-100.5 2433.79,-96.3 4985.87,-102.68 5170.25,-68.52"/>
+<polygon fill="black" stroke="black" points="5171.25,-71.88 5179.34,-65.04 5168.75,-65.34 5171.25,-71.88"/>
+</g>
+<!-- ts_02_gameflow_RespawnBall -->
+<g id="node14" class="node">
+<title>ts_02_gameflow_RespawnBall</title>
+<polygon fill="#ffd4d4" stroke="none" points="6258.38,-698.75 6258.38,-721.25 6553.12,-721.25 6553.12,-698.75 6258.38,-698.75"/>
+<polygon fill="none" stroke="black" points="6258.38,-698.75 6258.38,-721.25 6553.12,-721.25 6553.12,-698.75 6258.38,-698.75"/>
+<text xml:space="preserve" text-anchor="start" x="6261.38" y="-705.95" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="6327.38" y="-705.95" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6335.62" y="-705.95" font-family="monospace" font-size="14.00" fill="#6a0080">ts_02_gameflow_RespawnBall</text>
+</g>
+<!-- ts_02_gameflow_RespawnBall__block_0 -->
+<g id="node15" class="node">
+<title>ts_02_gameflow_RespawnBall__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="6184.12,-543.5 6184.12,-628 6627.38,-628 6627.38,-543.5 6184.12,-543.5"/>
+<polygon fill="none" stroke="black" points="6184.12,-605.5 6184.12,-628 6627.38,-628 6627.38,-605.5 6184.12,-605.5"/>
+<text xml:space="preserve" text-anchor="start" x="6207.75" y="-611.7" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ts_02_gameflow_RespawnBall @ 0</text>
+<polygon fill="none" stroke="black" points="6184.12,-543.5 6184.12,-605.5 6627.38,-605.5 6627.38,-543.5 6184.12,-543.5"/>
+<text xml:space="preserve" text-anchor="start" x="6187.12" y="-590.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="6211.88" y="-590.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6360.38" y="-590.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6368.62" y="-590.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_ts_02_BallPool</text>
+<text xml:space="preserve" text-anchor="start" x="6187.12" y="-576.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="6220.12" y="-576.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6236.62" y="-576.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="6327.38" y="-576.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6335.62" y="-576.2" font-family="monospace" font-size="14.00" fill="#0000cd">10</text>
+<text xml:space="preserve" text-anchor="start" x="6187.12" y="-562.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="6220.12" y="-562.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="6187.12" y="-548.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="6220.12" y="-548.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6236.62" y="-548.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ts_02_gameflow_RespawnBall&#45;&gt;ts_02_gameflow_RespawnBall__block_0 -->
+<g id="edge13" class="edge">
+<title>ts_02_gameflow_RespawnBall&#45;&gt;ts_02_gameflow_RespawnBall__block_0:n</title>
+<path fill="none" stroke="black" d="M6405.75,-692.08C6405.75,-679.43 6405.75,-661.42 6405.75,-644.12"/>
+<polygon fill="black" stroke="black" points="6409.25,-644.44 6405.75,-634.44 6402.25,-644.44 6409.25,-644.44"/>
+</g>
+<!-- ts_02_gameflow_RespawnBall__block_0&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_10 -->
+<g id="edge14" class="edge">
+<title>ts_02_gameflow_RespawnBall__block_0:e&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_10:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M6636.16,-585.75C6677.72,-585.75 6642.29,-538.37 6635.74,-495.46"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="6634.95,-485.65 6640.24,-495.26 6635.65,-488.17 6636.26,-495.58 6635.76,-495.62 6635.26,-495.66 6634.66,-488.25 6631.27,-495.99 6634.95,-485.65"/>
+</g>
+<!-- ReceiveEndPlay -->
+<g id="node16" class="node">
+<title>ReceiveEndPlay</title>
+<polygon fill="#ffd4d4" stroke="none" points="5238.88,-686 5238.88,-734 5698.62,-734 5698.62,-686 5238.88,-686"/>
+<polygon fill="none" stroke="black" points="5238.88,-686 5238.88,-734 5698.62,-734 5698.62,-686 5238.88,-686"/>
+<text xml:space="preserve" text-anchor="start" x="5241.88" y="-718.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="5307.88" y="-718.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5316.12" y="-718.7" font-family="monospace" font-size="14.00" fill="#6a0080">ReceiveEndPlay</text>
+<text xml:space="preserve" text-anchor="start" x="5241.88" y="-704.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5258.38" y="-704.7" font-family="monospace" font-size="14.00" fill="#996300">Byte</text>
+<text xml:space="preserve" text-anchor="start" x="5291.38" y="-704.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="5316.12" y="-704.7" font-family="monospace" font-size="14.00" fill="#006400">EndPlayReason</text>
+<text xml:space="preserve" text-anchor="start" x="5241.88" y="-690.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5274.88" y="-690.7" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- ReceiveEndPlay__block_0 -->
+<g id="node17" class="node">
+<title>ReceiveEndPlay__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="4987.25,-529.5 4987.25,-642 5950.25,-642 5950.25,-529.5 4987.25,-529.5"/>
+<polygon fill="none" stroke="black" points="4987.25,-619.5 4987.25,-642 5950.25,-642 5950.25,-619.5 4987.25,-619.5"/>
+<text xml:space="preserve" text-anchor="start" x="5320.25" y="-625.7" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ReceiveEndPlay @ 0</text>
+<polygon fill="none" stroke="black" points="4987.25,-529.5 4987.25,-619.5 5950.25,-619.5 5950.25,-529.5 4987.25,-529.5"/>
+<text xml:space="preserve" text-anchor="start" x="4990.25" y="-604.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="5015" y="-604.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetValueOnPersistentFrame</text>
+<text xml:space="preserve" text-anchor="start" x="5246" y="-604.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5254.25" y="-604.2" font-family="monospace" font-size="14.00" fill="#006400">export ts_02_BallPool_C&#45;&gt;ExecuteUbergraph_ts_02_BallPool&#45;&gt;K2Node_Event_EndPlayReason</text>
+<text xml:space="preserve" text-anchor="start" x="4990.25" y="-590.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">9: </text>
+<text xml:space="preserve" text-anchor="start" x="5015" y="-590.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5031.5" y="-590.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="5163.5" y="-590.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5171.75" y="-590.2" font-family="monospace" font-size="14.00" fill="#006400">EndPlayReason</text>
+<text xml:space="preserve" text-anchor="start" x="4990.25" y="-576.2" font-family="monospace" font-size="14.00" fill="#555555">18: </text>
+<text xml:space="preserve" text-anchor="start" x="5023.25" y="-576.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="5171.75" y="-576.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5180" y="-576.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_ts_02_BallPool</text>
+<text xml:space="preserve" text-anchor="start" x="4990.25" y="-562.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">31: </text>
+<text xml:space="preserve" text-anchor="start" x="5023.25" y="-562.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5039.75" y="-562.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="5130.5" y="-562.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5138.75" y="-562.2" font-family="monospace" font-size="14.00" fill="#0000cd">534</text>
+<text xml:space="preserve" text-anchor="start" x="4990.25" y="-548.2" font-family="monospace" font-size="14.00" fill="#555555">37: </text>
+<text xml:space="preserve" text-anchor="start" x="5023.25" y="-548.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="4990.25" y="-534.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">38: </text>
+<text xml:space="preserve" text-anchor="start" x="5023.25" y="-534.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5039.75" y="-534.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ReceiveEndPlay&#45;&gt;ReceiveEndPlay__block_0 -->
+<g id="edge15" class="edge">
+<title>ReceiveEndPlay&#45;&gt;ReceiveEndPlay__block_0:n</title>
+<path fill="none" stroke="black" d="M5468.75,-682.02C5468.75,-674.36 5468.75,-665.79 5468.75,-657.34"/>
+<polygon fill="black" stroke="black" points="5472.25,-657.51 5468.75,-647.51 5465.25,-657.51 5472.25,-657.51"/>
+</g>
+<!-- ReceiveEndPlay__block_0&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_534 -->
+<g id="edge16" class="edge">
+<title>ReceiveEndPlay__block_0:e&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_534:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M5959.1,-585.75C5985.88,-585.75 5968.61,-550.13 5958.1,-525.5 5951.27,-509.49 5933.59,-510.22 5925.68,-501.24"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="5922.52,-491.81 5929.96,-499.87 5923.81,-494.08 5926.17,-501.14 5925.7,-501.29 5925.22,-501.45 5922.86,-494.4 5921.43,-502.72 5922.52,-491.81"/>
+</g>
+<!-- ReceiveBeginPlay -->
+<g id="node18" class="node">
+<title>ReceiveBeginPlay</title>
+<polygon fill="#ffd4d4" stroke="none" points="4740.62,-574.5 4740.62,-597 4952.88,-597 4952.88,-574.5 4740.62,-574.5"/>
+<polygon fill="none" stroke="black" points="4740.62,-574.5 4740.62,-597 4952.88,-597 4952.88,-574.5 4740.62,-574.5"/>
+<text xml:space="preserve" text-anchor="start" x="4743.62" y="-581.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="4809.62" y="-581.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4817.88" y="-581.7" font-family="monospace" font-size="14.00" fill="#6a0080">ReceiveBeginPlay</text>
+</g>
+<!-- ReceiveBeginPlay__block_0 -->
+<g id="node19" class="node">
+<title>ReceiveBeginPlay__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="4660.12,-366 4660.12,-450.5 5103.38,-450.5 5103.38,-366 4660.12,-366"/>
+<polygon fill="none" stroke="black" points="4660.12,-428 4660.12,-450.5 5103.38,-450.5 5103.38,-428 4660.12,-428"/>
+<text xml:space="preserve" text-anchor="start" x="4725" y="-434.2" font-family="monospace" font-size="14.00">ts_02_BallPool_C::ReceiveBeginPlay @ 0</text>
+<polygon fill="none" stroke="black" points="4660.12,-366 4660.12,-428 5103.38,-428 5103.38,-366 4660.12,-366"/>
+<text xml:space="preserve" text-anchor="start" x="4663.12" y="-412.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="4687.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4836.38" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4844.62" y="-412.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_ts_02_BallPool</text>
+<text xml:space="preserve" text-anchor="start" x="4663.12" y="-398.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="4696.12" y="-398.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4712.62" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="4803.38" y="-398.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4811.62" y="-398.7" font-family="monospace" font-size="14.00" fill="#0000cd">458</text>
+<text xml:space="preserve" text-anchor="start" x="4663.12" y="-384.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="4696.12" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="4663.12" y="-370.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="4696.12" y="-370.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4712.62" y="-370.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ReceiveBeginPlay&#45;&gt;ReceiveBeginPlay__block_0 -->
+<g id="edge17" class="edge">
+<title>ReceiveBeginPlay&#45;&gt;ReceiveBeginPlay__block_0:n</title>
+<path fill="none" stroke="black" d="M4854.34,-567.99C4863.71,-545.88 4878.73,-505.26 4881.35,-466.75"/>
+<polygon fill="black" stroke="black" points="4884.84,-467.06 4881.7,-456.94 4877.85,-466.81 4884.84,-467.06"/>
+</g>
+<!-- ReceiveBeginPlay__block_0&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_458 -->
+<g id="edge18" class="edge">
+<title>ReceiveBeginPlay__block_0:e&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_458:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M5112.16,-408.25C5168.4,-408.25 5179.38,-358.88 5180.62,-303.32"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="5180.72,-293.44 5185.12,-303.48 5181.2,-296 5181.12,-303.44 5180.62,-303.44 5180.12,-303.43 5180.2,-295.99 5176.12,-303.39 5180.72,-293.44"/>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature -->
+<g id="node20" class="node">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature</title>
+<polygon fill="#ffd4d4" stroke="none" points="3706,-574.5 3706,-597 4421.5,-597 4421.5,-574.5 3706,-574.5"/>
+<polygon fill="none" stroke="black" points="3706,-574.5 3706,-597 4421.5,-597 4421.5,-574.5 3706,-574.5"/>
+<text xml:space="preserve" text-anchor="start" x="3709" y="-581.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="3775" y="-581.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3783.25" y="-581.7" font-family="monospace" font-size="14.00" fill="#6a0080">BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature</text>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature__block_0 -->
+<g id="node21" class="node">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="3652.38,-366 3652.38,-450.5 4475.12,-450.5 4475.12,-366 3652.38,-366"/>
+<polygon fill="none" stroke="black" points="3652.38,-428 3652.38,-450.5 4475.12,-450.5 4475.12,-428 3652.38,-428"/>
+<text xml:space="preserve" text-anchor="start" x="3655.38" y="-434.2" font-family="monospace" font-size="14.00">ts_02_BallPool_C::BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature @ 0</text>
+<polygon fill="none" stroke="black" points="3652.38,-366 3652.38,-428 4475.12,-428 4475.12,-366 3652.38,-366"/>
+<text xml:space="preserve" text-anchor="start" x="3655.38" y="-412.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="3680.12" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3828.62" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3836.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_ts_02_BallPool</text>
+<text xml:space="preserve" text-anchor="start" x="3655.38" y="-398.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="3688.38" y="-398.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3704.88" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="3795.62" y="-398.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3803.88" y="-398.7" font-family="monospace" font-size="14.00" fill="#0000cd">397</text>
+<text xml:space="preserve" text-anchor="start" x="3655.38" y="-384.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="3688.38" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="3655.38" y="-370.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="3688.38" y="-370.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3704.88" y="-370.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature&#45;&gt;BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature__block_0 -->
+<g id="edge19" class="edge">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature&#45;&gt;BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature__block_0:n</title>
+<path fill="none" stroke="black" d="M4063.75,-568.01C4063.75,-545.57 4063.75,-504.19 4063.75,-466.47"/>
+<polygon fill="black" stroke="black" points="4067.25,-466.94 4063.75,-456.94 4060.25,-466.94 4067.25,-466.94"/>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature__block_0&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_397 -->
+<g id="edge20" class="edge">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_3_EndSwing__DelegateSignature__block_0:e&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_397:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M4484,-408.25C4504.56,-408.25 4492.27,-380.35 4483,-362 4455.12,-306.85 4376.55,-332.99 4365.94,-283.19"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="4364.99,-273.36 4370.43,-282.88 4365.73,-275.87 4366.45,-283.27 4365.95,-283.32 4365.46,-283.36 4364.74,-275.96 4361.47,-283.75 4364.99,-273.36"/>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature -->
+<g id="node22" class="node">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature</title>
+<polygon fill="#ffd4d4" stroke="none" points="2832.75,-574.5 2832.75,-597 3564.75,-597 3564.75,-574.5 2832.75,-574.5"/>
+<polygon fill="none" stroke="black" points="2832.75,-574.5 2832.75,-597 3564.75,-597 3564.75,-574.5 2832.75,-574.5"/>
+<text xml:space="preserve" text-anchor="start" x="2835.75" y="-581.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="2901.75" y="-581.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2910" y="-581.7" font-family="monospace" font-size="14.00" fill="#6a0080">BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature</text>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature__block_0 -->
+<g id="node23" class="node">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="2779.12,-366 2779.12,-450.5 3618.38,-450.5 3618.38,-366 2779.12,-366"/>
+<polygon fill="none" stroke="black" points="2779.12,-428 2779.12,-450.5 3618.38,-450.5 3618.38,-428 2779.12,-428"/>
+<text xml:space="preserve" text-anchor="start" x="2782.12" y="-434.2" font-family="monospace" font-size="14.00">ts_02_BallPool_C::BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature @ 0</text>
+<polygon fill="none" stroke="black" points="2779.12,-366 2779.12,-428 3618.38,-428 3618.38,-366 2779.12,-366"/>
+<text xml:space="preserve" text-anchor="start" x="2782.12" y="-412.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="2806.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2955.38" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2963.62" y="-412.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_ts_02_BallPool</text>
+<text xml:space="preserve" text-anchor="start" x="2782.12" y="-398.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="2815.12" y="-398.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2831.62" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="2922.38" y="-398.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2930.62" y="-398.7" font-family="monospace" font-size="14.00" fill="#0000cd">336</text>
+<text xml:space="preserve" text-anchor="start" x="2782.12" y="-384.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="2815.12" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="2782.12" y="-370.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="2815.12" y="-370.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2831.62" y="-370.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature&#45;&gt;BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature__block_0 -->
+<g id="edge21" class="edge">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature&#45;&gt;BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature__block_0:n</title>
+<path fill="none" stroke="black" d="M3198.75,-568.01C3198.75,-545.58 3198.75,-504.2 3198.75,-466.49"/>
+<polygon fill="black" stroke="black" points="3202.25,-466.96 3198.75,-456.96 3195.25,-466.96 3202.25,-466.96"/>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature__block_0&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_336 -->
+<g id="edge22" class="edge">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_2_LeaveSwing__DelegateSignature__block_0:e&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_336:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M3627.24,-408.25C3637.52,-408.25 3627.86,-372.15 3626.24,-362 3620.32,-324.65 3602.99,-315.08 3599.41,-283.22"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="3598.88,-273.37 3603.91,-283.12 3599.52,-275.9 3599.91,-283.33 3599.41,-283.36 3598.91,-283.38 3598.52,-275.96 3594.92,-283.6 3598.88,-273.37"/>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature -->
+<g id="node24" class="node">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature</title>
+<polygon fill="#ffd4d4" stroke="none" points="1959.75,-574.5 1959.75,-597 2691.75,-597 2691.75,-574.5 1959.75,-574.5"/>
+<polygon fill="none" stroke="black" points="1959.75,-574.5 1959.75,-597 2691.75,-597 2691.75,-574.5 1959.75,-574.5"/>
+<text xml:space="preserve" text-anchor="start" x="1962.75" y="-581.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="2028.75" y="-581.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2037" y="-581.7" font-family="monospace" font-size="14.00" fill="#6a0080">BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature</text>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature__block_0 -->
+<g id="node25" class="node">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="1906.12,-366 1906.12,-450.5 2745.38,-450.5 2745.38,-366 1906.12,-366"/>
+<polygon fill="none" stroke="black" points="1906.12,-428 1906.12,-450.5 2745.38,-450.5 2745.38,-428 1906.12,-428"/>
+<text xml:space="preserve" text-anchor="start" x="1909.12" y="-434.2" font-family="monospace" font-size="14.00">ts_02_BallPool_C::BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature @ 0</text>
+<polygon fill="none" stroke="black" points="1906.12,-366 1906.12,-428 2745.38,-428 2745.38,-366 1906.12,-366"/>
+<text xml:space="preserve" text-anchor="start" x="1909.12" y="-412.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="1933.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2082.38" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2090.62" y="-412.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_ts_02_BallPool</text>
+<text xml:space="preserve" text-anchor="start" x="1909.12" y="-398.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="1942.12" y="-398.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1958.62" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="2049.38" y="-398.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2057.62" y="-398.7" font-family="monospace" font-size="14.00" fill="#0000cd">275</text>
+<text xml:space="preserve" text-anchor="start" x="1909.12" y="-384.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="1942.12" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="1909.12" y="-370.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="1942.12" y="-370.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1958.62" y="-370.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature&#45;&gt;BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature__block_0 -->
+<g id="edge23" class="edge">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature&#45;&gt;BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature__block_0:n</title>
+<path fill="none" stroke="black" d="M2325.75,-568.01C2325.75,-545.58 2325.75,-504.2 2325.75,-466.49"/>
+<polygon fill="black" stroke="black" points="2329.25,-466.96 2325.75,-456.96 2322.25,-466.96 2329.25,-466.96"/>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature__block_0&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_275 -->
+<g id="edge24" class="edge">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_1_EntrySwing__DelegateSignature__block_0:e&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_275:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M2754.24,-408.25C2763.31,-408.25 2759.94,-335.88 2761.75,-327 2766.04,-305.97 2775.41,-299.33 2778.63,-283.17"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="2779.53,-273.36 2783.1,-283.73 2779.79,-275.96 2779.12,-283.37 2778.62,-283.32 2778.12,-283.28 2778.8,-275.87 2774.14,-282.91 2779.53,-273.36"/>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature -->
+<g id="node26" class="node">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature</title>
+<polygon fill="#ffd4d4" stroke="none" points="1086.75,-574.5 1086.75,-597 1818.75,-597 1818.75,-574.5 1086.75,-574.5"/>
+<polygon fill="none" stroke="black" points="1086.75,-574.5 1086.75,-597 1818.75,-597 1818.75,-574.5 1086.75,-574.5"/>
+<text xml:space="preserve" text-anchor="start" x="1089.75" y="-581.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="1155.75" y="-581.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1164" y="-581.7" font-family="monospace" font-size="14.00" fill="#6a0080">BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature</text>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature__block_0 -->
+<g id="node27" class="node">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="1033.12,-366 1033.12,-450.5 1872.38,-450.5 1872.38,-366 1033.12,-366"/>
+<polygon fill="none" stroke="black" points="1033.12,-428 1033.12,-450.5 1872.38,-450.5 1872.38,-428 1033.12,-428"/>
+<text xml:space="preserve" text-anchor="start" x="1036.12" y="-434.2" font-family="monospace" font-size="14.00">ts_02_BallPool_C::BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature @ 0</text>
+<polygon fill="none" stroke="black" points="1033.12,-366 1033.12,-428 1872.38,-428 1872.38,-366 1033.12,-366"/>
+<text xml:space="preserve" text-anchor="start" x="1036.12" y="-412.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="1060.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1209.38" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1217.62" y="-412.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_ts_02_BallPool</text>
+<text xml:space="preserve" text-anchor="start" x="1036.12" y="-398.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="1069.12" y="-398.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1085.62" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1176.38" y="-398.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1184.62" y="-398.7" font-family="monospace" font-size="14.00" fill="#0000cd">214</text>
+<text xml:space="preserve" text-anchor="start" x="1036.12" y="-384.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="1069.12" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="1036.12" y="-370.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="1069.12" y="-370.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1085.62" y="-370.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature&#45;&gt;BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature__block_0 -->
+<g id="edge25" class="edge">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature&#45;&gt;BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature__block_0:n</title>
+<path fill="none" stroke="black" d="M1452.75,-568.01C1452.75,-545.58 1452.75,-504.2 1452.75,-466.49"/>
+<polygon fill="black" stroke="black" points="1456.25,-466.96 1452.75,-456.96 1449.25,-466.96 1456.25,-466.96"/>
+</g>
+<!-- BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature__block_0&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_214 -->
+<g id="edge26" class="edge">
+<title>BndEvt__g_ts_swing_01_26_K2Node_ActorBoundEvent_0_BeginSwing__DelegateSignature__block_0:e&#45;&gt;ExecuteUbergraph_ts_02_BallPool__block_214:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M1881.24,-408.25C1890.31,-408.25 1884.4,-334.95 1888.75,-327 1905.94,-295.59 1948.89,-307.55 1958.72,-282.88"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="1960.34,-273.34 1963.11,-283.95 1960.41,-275.95 1959.16,-283.28 1958.67,-283.2 1958.18,-283.11 1959.42,-275.78 1954.23,-282.45 1960.34,-273.34"/>
+</g>
+</g>
+</svg>
+</div>
+    </div>
+  </div>
+
+  <div id="minimap">
+    <div id="minimap-content">
+      <canvas id="minimap-canvas"></canvas>
+      <div id="minimap-viewport"></div>
+    </div>
+  </div>
+
+  <div id="hint">
+    <kbd>Wheel</kbd> zoom &nbsp;
+    <kbd>Drag</kbd> pan
+  </div>
+
+  <div id="drop-overlay">Drop SVG file here</div>
+
+  <script>
+    const fileInput = document.getElementById('file-input');
+    const viewport = document.getElementById('viewport');
+    const svgWrapper = document.getElementById('svg-wrapper');
+    const svgContainer = document.getElementById('svg-container');
+    const zoomLevelEl = document.getElementById('zoom-level');
+    const searchInput = document.getElementById('search-input');
+    const searchInfo = document.getElementById('search-info');
+    const emptyState = document.getElementById('empty-state');
+    const dropOverlay = document.getElementById('drop-overlay');
+    const darkModeToggle = document.getElementById('dark-mode-toggle');
+    const minimapToggle = document.getElementById('minimap-toggle');
+    const minimap = document.getElementById('minimap');
+    const minimapContent = document.getElementById('minimap-content');
+    const minimapCanvas = document.getElementById('minimap-canvas');
+    const minimapViewport = document.getElementById('minimap-viewport');
+
+    let scale = 1;
+    let darkMode = false;
+    let minimapVisible = true;
+    let svgElement = null;
+    let svgWidth = 0;
+    let svgHeight = 0;
+    let minimapImageData = null; // Cached rasterized SVG
+
+    // Panning state
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let scrollStartX = 0;
+    let scrollStartY = 0;
+
+    // Minimap drag state
+    let isMinimapDragging = false;
+    let minimapDragOffsetX = 0;
+    let minimapDragOffsetY = 0;
+
+    // Search state
+    let searchMatches = [];
+    let currentMatchIndex = -1;
+    let highlightGroup = null;
+    let searchDebounceTimer = null;
+
+    const MIN_SCALE = 0.1;
+    const MAX_SCALE = 5;
+
+    // === File Loading ===
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) loadSvgFile(file);
+    });
+
+    // Examples dropdowns (toolbar and empty state)
+    const exampleFiles = [
+      'vm_flow.svg',
+      'PLS_Base.svg',
+      'dominion.svg',
+      'blueprint.svg'
+    ];
+
+    document.querySelectorAll('.examples-select').forEach(select => {
+      // Populate options
+      exampleFiles.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file;
+        option.textContent = file;
+        select.appendChild(option);
+      });
+
+      // Handle selection
+      select.addEventListener('change', async (e) => {
+        const file = e.target.value;
+        if (!file) return;
+
+        try {
+          const response = await fetch(`examples/${file}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${file}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+
+        // Reset dropdown to placeholder
+        select.value = '';
+      });
+    });
+
+    // Empty state file button
+    document.getElementById('empty-file-btn').addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    // Drag and drop
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.add('active');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      if (e.target === dropOverlay) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.remove('active');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.svg')) {
+        loadSvgFile(file);
+      }
+    });
+
+    function loadSvgFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const svgText = e.target.result;
+        loadSvgContent(svgText);
+        document.title = `SVG Viewer - ${file.name}`;
+      };
+      reader.readAsText(file);
+    }
+
+    function loadSvgContent(svgText) {
+      // Clear previous content
+      svgContainer.innerHTML = svgText;
+      svgElement = svgContainer.querySelector('svg');
+
+      if (!svgElement) {
+        alert('Invalid SVG file');
+        return;
+      }
+
+      // Show viewport, hide empty state
+      emptyState.classList.add('hidden');
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap
+      initMinimap(svgText);
+    }
+
+    // === Zoom Controls ===
+
+    document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.25));
+    document.getElementById('zoom-out').addEventListener('click', () => zoomBy(0.8));
+    document.getElementById('zoom-reset').addEventListener('click', () => setZoom(1));
+
+    // === Dark Mode Toggle ===
+
+    darkModeToggle.addEventListener('click', toggleDarkMode);
+
+    function toggleDarkMode() {
+      darkMode = !darkMode;
+      svgContainer.classList.toggle('dark-mode', darkMode);
+      minimapContent.classList.toggle('dark-mode', darkMode);
+      darkModeToggle.classList.toggle('active', darkMode);
+    }
+
+    // === Minimap ===
+
+    minimapToggle.addEventListener('click', toggleMinimap);
+
+    function toggleMinimap() {
+      minimapVisible = !minimapVisible;
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+    }
+
+    function initMinimap(svgText) {
+      // Calculate minimap size to fit within bounds while preserving aspect ratio
+      const maxWidth = 400;
+      const maxHeight = 600;
+      const aspectRatio = svgWidth / svgHeight;
+
+      let mmWidth, mmHeight;
+      if (aspectRatio > maxWidth / maxHeight) {
+        // Width constrained
+        mmWidth = maxWidth;
+        mmHeight = maxWidth / aspectRatio;
+      } else {
+        // Height constrained
+        mmHeight = maxHeight;
+        mmWidth = maxHeight * aspectRatio;
+      }
+
+      minimap.style.width = mmWidth + 'px';
+      minimap.style.height = mmHeight + 'px';
+
+      // Set canvas size (use higher resolution for retina displays)
+      const dpr = window.devicePixelRatio || 1;
+      minimapCanvas.width = mmWidth * dpr;
+      minimapCanvas.height = mmHeight * dpr;
+      minimapCanvas.style.width = mmWidth + 'px';
+      minimapCanvas.style.height = mmHeight + 'px';
+
+      // Show minimap
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+
+      // Sync dark mode
+      minimapContent.classList.toggle('dark-mode', darkMode);
+
+      // Rasterize SVG to canvas
+      rasterizeSvgToCanvas(svgText, mmWidth, mmHeight, dpr);
+
+      // Update viewport indicator
+      updateMinimapViewport();
+    }
+
+    function rasterizeSvgToCanvas(svgText, width, height, dpr) {
+      const img = new Image();
+      const blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+
+      img.onload = () => {
+        const ctx = minimapCanvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+
+        // Cache the image data for potential re-use
+        minimapImageData = ctx.getImageData(0, 0, minimapCanvas.width, minimapCanvas.height);
+      };
+
+      img.onerror = () => {
+        console.error('Failed to rasterize SVG for minimap');
+        URL.revokeObjectURL(url);
+      };
+
+      img.src = url;
+    }
+
+    function updateMinimapViewport() {
+      if (!svgElement || !minimapVisible) return;
+
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+
+      // Padding in the main viewport
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Current scroll position relative to SVG (not padding)
+      const scrollX = viewport.scrollLeft - padX;
+      const scrollY = viewport.scrollTop - padY;
+
+      // Visible area in SVG coordinates
+      const visibleX = scrollX / scale;
+      const visibleY = scrollY / scale;
+      const visibleW = vpRect.width / scale;
+      const visibleH = vpRect.height / scale;
+
+      // Scale to minimap coordinates
+      const mmScaleX = mmRect.width / svgWidth;
+      const mmScaleY = mmRect.height / svgHeight;
+
+      // Position and size the viewport indicator (no clamping - allow overflow)
+      const left = visibleX * mmScaleX;
+      const top = visibleY * mmScaleY;
+      const width = visibleW * mmScaleX;
+      const height = visibleH * mmScaleY;
+
+      minimapViewport.style.left = left + 'px';
+      minimapViewport.style.top = top + 'px';
+      minimapViewport.style.width = Math.max(10, width) + 'px';
+      minimapViewport.style.height = Math.max(10, height) + 'px';
+    }
+
+    // Update minimap on scroll
+    viewport.addEventListener('scroll', updateMinimapViewport);
+
+    // Minimap click/drag to navigate
+    minimapContent.addEventListener('mousedown', (e) => {
+      isMinimapDragging = true;
+
+      // Calculate offset so dragging feels natural
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = minimapViewport.getBoundingClientRect();
+
+      // Check if clicking inside the viewport indicator
+      const inViewport = e.clientX >= vpRect.left && e.clientX <= vpRect.right &&
+        e.clientY >= vpRect.top && e.clientY <= vpRect.bottom;
+
+      if (inViewport) {
+        // Drag from current position
+        minimapDragOffsetX = e.clientX - vpRect.left;
+        minimapDragOffsetY = e.clientY - vpRect.top;
+      } else {
+        // Click outside - center viewport on click point, then allow drag
+        const vpW = vpRect.width;
+        const vpH = vpRect.height;
+        minimapDragOffsetX = vpW / 2;
+        minimapDragOffsetY = vpH / 2;
+        navigateMinimapTo(e, true);
+      }
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isMinimapDragging) return;
+      navigateMinimapTo(e, true);
+    });
+
+    document.addEventListener('mouseup', () => {
+      isMinimapDragging = false;
+    });
+
+    function navigateMinimapTo(e, useDragOffset = false) {
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Mouse position in minimap
+      let mmX = e.clientX - mmRect.left;
+      let mmY = e.clientY - mmRect.top;
+
+      if (useDragOffset) {
+        // Adjust for drag offset (top-left of viewport indicator)
+        mmX -= minimapDragOffsetX;
+        mmY -= minimapDragOffsetY;
+      } else {
+        // Click centers the viewport on that point
+        const vpW = (vpRect.width / scale) * (mmRect.width / svgWidth);
+        const vpH = (vpRect.height / scale) * (mmRect.height / svgHeight);
+        mmX -= vpW / 2;
+        mmY -= vpH / 2;
+      }
+
+      // Convert to SVG coordinates
+      const svgX = (mmX / mmRect.width) * svgWidth;
+      const svgY = (mmY / mmRect.height) * svgHeight;
+
+      // Scroll to position (accounting for padding)
+      viewport.scrollLeft = svgX * scale + padX;
+      viewport.scrollTop = svgY * scale + padY;
+    }
+
+    function zoomBy(factor, centerX, centerY) {
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor));
+      if (newScale === scale) return;
+
+      const rect = viewport.getBoundingClientRect();
+      const oldPadX = rect.width;
+      const oldPadY = rect.height;
+
+      // If center point provided, zoom towards it
+      if (centerX !== undefined && centerY !== undefined) {
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates (accounting for padding)
+        const svgX = (scrollX + centerX - rect.left - oldPadX) / scale;
+        const svgY = (scrollY + centerY - rect.top - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        // New padding after zoom (viewport size doesn't change)
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        // Scroll to keep the point under cursor
+        viewport.scrollLeft = svgX * scale + newPadX - (centerX - rect.left);
+        viewport.scrollTop = svgY * scale + newPadY - (centerY - rect.top);
+      } else {
+        // Zoom towards center of viewport
+        const viewCenterX = rect.width / 2;
+        const viewCenterY = rect.height / 2;
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates
+        const svgX = (scrollX + viewCenterX - oldPadX) / scale;
+        const svgY = (scrollY + viewCenterY - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        viewport.scrollLeft = svgX * scale + newPadX - viewCenterX;
+        viewport.scrollTop = svgY * scale + newPadY - viewCenterY;
+      }
+    }
+
+    function setZoom(newScale) {
+      scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+      updateZoom();
+    }
+
+    function centerSvg() {
+      const rect = viewport.getBoundingClientRect();
+      const padX = rect.width;
+      const padY = rect.height;
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      // Scroll so SVG is centered in viewport
+      viewport.scrollLeft = padX + (scaledW - rect.width) / 2;
+      viewport.scrollTop = padY + (scaledH - rect.height) / 2;
+    }
+
+    function updateZoom() {
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportW = viewportRect.width;
+      const viewportH = viewportRect.height;
+
+      // Padding allows the SVG to be scrolled so it can be centered (or anywhere)
+      const padX = viewportW;
+      const padY = viewportH;
+
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      svgContainer.style.transform = `scale(${scale})`;
+      svgContainer.style.width = scaledW + 'px';
+      svgContainer.style.height = scaledH + 'px';
+
+      // Wrapper includes padding on all sides
+      svgWrapper.style.paddingLeft = padX + 'px';
+      svgWrapper.style.paddingTop = padY + 'px';
+      svgWrapper.style.paddingRight = padX + 'px';
+      svgWrapper.style.paddingBottom = padY + 'px';
+
+      zoomLevelEl.textContent = Math.round(scale * 100) + '%';
+
+      // Update minimap viewport indicator
+      updateMinimapViewport();
+    }
+
+    // Mouse wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      zoomBy(factor, e.clientX, e.clientY);
+    }, {passive: false});
+
+    // === Panning ===
+
+    function isTextElement(el) {
+      while (el && el !== viewport) {
+        if (el.tagName === 'text' || el.tagName === 'tspan') return true;
+        el = el.parentElement;
+      }
+      return false;
+    }
+
+    viewport.addEventListener('mousedown', (e) => {
+      // Middle mouse always pans
+      if (e.button === 1) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+        return;
+      }
+
+      // Left click: pan if not on text, otherwise let browser handle selection
+      if (e.button === 0 && !isTextElement(e.target)) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+      }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isPanning) return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      viewport.scrollLeft = scrollStartX - dx;
+      viewport.scrollTop = scrollStartY - dy;
+    });
+
+    document.addEventListener('mouseup', () => {
+      isPanning = false;
+      viewport.classList.remove('panning');
+    });
+
+    // === Touch Support (pinch zoom only, panning is native scroll) ===
+
+    let touchStartDist = 0;
+    let touchStartScale = 1;
+    let lastTouchCenter = null;
+
+    viewport.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        touchStartDist = getTouchDistance(e.touches);
+        touchStartScale = scale;
+        lastTouchCenter = getTouchCenter(e.touches);
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDistance(e.touches);
+        const center = getTouchCenter(e.touches);
+        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, touchStartScale * (dist / touchStartDist)));
+
+        if (newScale !== scale) {
+          // Zoom towards pinch center
+          const rect = viewport.getBoundingClientRect();
+          const padX = rect.width;
+          const padY = rect.height;
+
+          const svgX = (viewport.scrollLeft + center.x - rect.left - padX) / scale;
+          const svgY = (viewport.scrollTop + center.y - rect.top - padY) / scale;
+
+          scale = newScale;
+          updateZoom();
+
+          viewport.scrollLeft = svgX * scale + padX - (center.x - rect.left);
+          viewport.scrollTop = svgY * scale + padY - (center.y - rect.top);
+        }
+
+        lastTouchCenter = center;
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) {
+        touchStartDist = 0;
+        lastTouchCenter = null;
+      }
+    });
+
+    function getTouchDistance(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getTouchCenter(touches) {
+      return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2
+      };
+    }
+
+    // === Search ===
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(performSearch, 150);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          navigateSearch(-1);
+        } else {
+          navigateSearch(1);
+        }
+      } else if (e.key === 'Escape') {
+        searchInput.blur();
+        clearSearch();
+      }
+    });
+
+    document.getElementById('search-prev').addEventListener('click', () => navigateSearch(-1));
+    document.getElementById('search-next').addEventListener('click', () => navigateSearch(1));
+
+    // CSS Custom Highlight API highlights
+    let searchResultsHighlight = null;
+    let searchCurrentHighlight = null;
+
+    // Initialize highlights if API is available
+    if (CSS.highlights) {
+      searchResultsHighlight = new Highlight();
+      searchCurrentHighlight = new Highlight();
+      CSS.highlights.set('search-results', searchResultsHighlight);
+      CSS.highlights.set('search-current', searchCurrentHighlight);
+    }
+
+    function performSearch() {
+      if (!svgElement) return;
+
+      const query = searchInput.value.trim();
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+
+      if (!query) {
+        updateSearchInfo();
+        searchInput.classList.remove('invalid');
+        return;
+      }
+
+      // Try to compile regex
+      let regex;
+      try {
+        regex = new RegExp(query, 'gi');
+        searchInput.classList.remove('invalid');
+      } catch (e) {
+        // Invalid regex
+        searchInput.classList.add('invalid');
+        updateSearchInfo();
+        return;
+      }
+
+      // Find all text elements containing matches
+      const textElements = svgElement.querySelectorAll('text');
+      textElements.forEach((textEl) => {
+        const content = textEl.textContent || '';
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        let match;
+        regex.lastIndex = 0; // Reset regex state
+        while ((match = regex.exec(content)) !== null) {
+          // Create range for this match
+          try {
+            const range = new Range();
+            range.setStart(textNode, match.index);
+            range.setEnd(textNode, match.index + match[0].length);
+
+            searchMatches.push({
+              element: textEl,
+              start: match.index,
+              length: match[0].length,
+              text: match[0],
+              range: range
+            });
+          } catch (e) {
+            // Range creation failed, skip this match
+          }
+
+          // Prevent infinite loop on zero-length matches
+          if (match[0].length === 0) regex.lastIndex++;
+        }
+      });
+
+      // Add all ranges to the highlight (if API available)
+      if (searchResultsHighlight) {
+        searchMatches.forEach(match => {
+          searchResultsHighlight.add(match.range);
+        });
+      } else {
+        // Fallback: use SVG rects
+        searchMatches.forEach((match, index) => {
+          const rect = createHighlightRect(match);
+          if (rect) {
+            rect.dataset.index = index;
+            highlightGroup.appendChild(rect);
+          }
+        });
+      }
+
+      updateSearchInfo();
+
+      // Navigate to first match (don't select - user is still typing)
+      if (searchMatches.length > 0) {
+        currentMatchIndex = 0;
+        highlightCurrentMatch();
+        scrollToCurrentMatch(false);
+      }
+    }
+
+    function createHighlightRect(match) {
+      try {
+        const textEl = match.element;
+        const fullBbox = textEl.getBBox();
+        const content = textEl.textContent || '';
+
+        // Calculate approximate character width
+        const charWidth = fullBbox.width / content.length;
+
+        // Calculate highlight bounds for the matched portion
+        const x = fullBbox.x + (match.start * charWidth);
+        const width = match.length * charWidth;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x - 1);
+        rect.setAttribute('y', fullBbox.y - 2);
+        rect.setAttribute('width', width + 2);
+        rect.setAttribute('height', fullBbox.height + 4);
+        rect.classList.add('search-highlight');
+
+        // Apply transforms from parent elements
+        let transform = '';
+        let el = textEl;
+        while (el && el !== svgElement) {
+          const t = el.getAttribute('transform');
+          if (t) transform = t + ' ' + transform;
+          el = el.parentElement;
+        }
+        if (transform) {
+          rect.setAttribute('transform', transform);
+        }
+
+        return rect;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function clearHighlights() {
+      // Clear CSS Custom Highlights
+      if (searchResultsHighlight) {
+        searchResultsHighlight.clear();
+      }
+      if (searchCurrentHighlight) {
+        searchCurrentHighlight.clear();
+      }
+      // Clear SVG rect fallback
+      if (highlightGroup) {
+        highlightGroup.innerHTML = '';
+      }
+    }
+
+    function clearSearch() {
+      searchInput.value = '';
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+      updateSearchInfo();
+    }
+
+    function navigateSearch(direction) {
+      if (searchMatches.length === 0) return;
+
+      currentMatchIndex += direction;
+      if (currentMatchIndex >= searchMatches.length) {
+        currentMatchIndex = 0;
+      } else if (currentMatchIndex < 0) {
+        currentMatchIndex = searchMatches.length - 1;
+      }
+
+      highlightCurrentMatch();
+      scrollToCurrentMatch(true); // Select text on explicit navigation
+    }
+
+    function highlightCurrentMatch() {
+      if (searchCurrentHighlight) {
+        // Update current highlight
+        searchCurrentHighlight.clear();
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchMatches.length) {
+          searchCurrentHighlight.add(searchMatches[currentMatchIndex].range);
+        }
+      } else {
+        // Fallback: toggle class on SVG rects
+        const rects = highlightGroup.querySelectorAll('rect');
+        rects.forEach((rect, i) => {
+          rect.classList.toggle('current', i === currentMatchIndex);
+        });
+      }
+      updateSearchInfo();
+    }
+
+    function scrollToCurrentMatch(shouldSelect = false) {
+      if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
+
+      const match = searchMatches[currentMatchIndex];
+      const textEl = match.element;
+      try {
+        const bbox = textEl.getBBox();
+
+        // Get cumulative transform
+        let el = textEl;
+        let matrix = svgElement.createSVGMatrix();
+        const transforms = [];
+        while (el && el !== svgElement) {
+          const t = el.transform?.baseVal?.consolidate()?.matrix;
+          if (t) transforms.unshift(t);
+          el = el.parentElement;
+        }
+        transforms.forEach(t => {
+          matrix = matrix.multiply(t);
+        });
+
+        // Transform the center point
+        const centerX = bbox.x + bbox.width / 2;
+        const centerY = bbox.y + bbox.height / 2;
+        const point = svgElement.createSVGPoint();
+        point.x = centerX;
+        point.y = centerY;
+        const transformed = point.matrixTransform(matrix);
+
+        // Convert to screen coordinates and scroll (accounting for padding)
+        const viewportRect = viewport.getBoundingClientRect();
+        const padX = viewportRect.width;
+        const padY = viewportRect.height;
+
+        const screenX = transformed.x * scale + padX;
+        const screenY = transformed.y * scale + padY;
+
+        const targetScrollX = screenX - viewportRect.width / 2;
+        const targetScrollY = screenY - viewportRect.height / 2;
+
+        viewport.scrollTo({
+          left: targetScrollX,
+          top: targetScrollY,
+          behavior: 'smooth'
+        });
+
+        // Only select text on explicit navigation (Enter/buttons), not while typing
+        if (shouldSelect) {
+          selectMatchedText(match);
+        }
+      } catch (e) {
+        // Fallback: try to scroll the element into view
+        textEl.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});
+      }
+    }
+
+    function selectMatchedText(match) {
+      try {
+        const textEl = match.element;
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.setStart(textNode, match.start);
+        range.setEnd(textNode, match.start + match.length);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (e) {
+        // Selection not supported or failed
+      }
+    }
+
+    function updateSearchInfo() {
+      if (searchMatches.length === 0) {
+        searchInfo.textContent = searchInput.value ? 'No matches' : '0 / 0';
+      } else {
+        searchInfo.textContent = `${currentMatchIndex + 1} / ${searchMatches.length}`;
+      }
+    }
+
+    // === Keyboard Shortcuts ===
+
+    document.addEventListener('keydown', (e) => {
+      // Don't handle shortcuts if typing in search
+      if (document.activeElement === searchInput) return;
+
+      // Zoom shortcuts
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomBy(1.25);
+      } else if (e.key === '-') {
+        e.preventDefault();
+        zoomBy(0.8);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setZoom(1);
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        toggleDarkMode();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        toggleMinimap();
+      }
+    });
+
+    // === Embedded SVG Support ===
+
+    function initializeEmbeddedSvg() {
+      // Check if an SVG is already present in the container (embedded at build time)
+      svgElement = svgContainer.querySelector('svg');
+      if (!svgElement) return false;
+
+      // Hide file selection UI since this is a self-contained viewer
+      const fileGroup = document.querySelector('#toolbar .group:first-child');
+      if (fileGroup) fileGroup.style.display = 'none';
+      emptyState.style.display = 'none';
+
+      // Show viewport
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap - serialize SVG for rasterization
+      const svgText = new XMLSerializer().serializeToString(svgElement);
+      initMinimap(svgText);
+
+      return true;
+    }
+
+    // Check for embedded SVG on startup
+    const hasEmbeddedSvg = initializeEmbeddedSvg();
+
+    // === URL Hash Loading ===
+
+    async function loadFromHash() {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return;
+
+      const params = new URLSearchParams(hash);
+
+      // Check for url= parameter
+      const url = params.get('url');
+      if (url) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            // Extract filename from URL for title
+            const filename = url.split('/').pop() || 'remote';
+            document.title = `SVG Viewer - ${filename}`;
+          } else {
+            console.error('Failed to load SVG from URL:', response.status);
+          }
+        } catch (err) {
+          console.error('Failed to load SVG from URL:', err);
+        }
+        return;
+      }
+
+      // Check for example= parameter
+      const example = params.get('example');
+      if (example && exampleFiles.includes(example)) {
+        try {
+          const response = await fetch(`examples/${example}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${example}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+      }
+    }
+
+    // Only load from hash if no embedded SVG
+    if (!hasEmbeddedSvg) {
+      loadFromHash();
+      window.addEventListener('hashchange', loadFromHash);
+    }
+
+  </script>
+</body>
+
+</html>

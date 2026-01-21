@@ -1,163 +1,1882 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <style>
-      window, html, body {
-        border: 0;
-        margin: 0;
-        padding: 0;
-      }
-      body {
-        overflow: scroll;
-      }
-      #minimap-container {
-        position: fixed;
-        top: 5vmin;
-        right: 5vmin;
+<html lang="en">
 
-        outline: 2px solid black;
-      }
-      #minimap {
-        max-width: 30vmin;
-        max-height: 30vmin;
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVG Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-        display: block;
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
 
-        pointer-events: none;
-      }
-      #minimap-view {
-        position: absolute;
-        box-sizing: border-box;
-        left: 0%;
-        top: 50%;
+    #toolbar {
+      background: #2d2d2d;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #444;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
 
-        pointer-events: none;
+    #toolbar .group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
 
-        outline: 2px solid black;
+    #toolbar label {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #toolbar button {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    #toolbar button:hover {
+      background: #555;
+    }
+
+    #toolbar button:active {
+      background: #666;
+    }
+
+    #file-input {
+      font-size: 13px;
+    }
+
+    .examples-select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .examples-select:hover {
+      background: #555;
+    }
+
+    #zoom-level {
+      min-width: 50px;
+      text-align: center;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #search-input {
+      background: #333;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      width: 200px;
+    }
+
+    #search-input:focus {
+      outline: none;
+      border-color: #0078d4;
+    }
+
+    #search-input.invalid {
+      border-color: #d32f2f;
+      background: #3d2020;
+    }
+
+    #search-info {
+      font-size: 13px;
+      color: #aaa;
+      min-width: 60px;
+    }
+
+    #viewport {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      touch-action: pan-x pan-y;
+      cursor: grab;
+    }
+
+    #viewport.panning {
+      cursor: grabbing;
+    }
+
+    #svg-container text {
+      cursor: text;
+    }
+
+    #svg-wrapper {
+      display: inline-block;
+      /* Padding allows SVG to be scrolled/centered even when zoomed out */
+    }
+
+    #svg-container {
+      transform-origin: 0 0;
+      display: inline-block;
+    }
+
+    #svg-container svg {
+      display: block;
+    }
+
+    /* Dark mode for SVG - invert with reduced contrast */
+    #svg-container.dark-mode svg {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    /* Toggle button active state */
+    #toolbar button.active {
+      background: #0078d4;
+      border-color: #0078d4;
+    }
+
+    #toolbar button.active:hover {
+      background: #1084d8;
+    }
+
+    /* Search highlight styling - SVG rect fallback */
+    .search-highlight {
+      fill: #22ee22;
+      stroke: #00aa00;
+      stroke-width: 1;
+      pointer-events: none;
+    }
+
+    .search-highlight.current {
+      fill: #ff22ff;
+      stroke: #cc00cc;
+      stroke-width: 2;
+    }
+
+    /* CSS Custom Highlight API styling */
+    ::highlight(search-results) {
+      background-color: #22ee22;
+      color: black;
+    }
+
+    ::highlight(search-current) {
+      background-color: #ff22ff;
+      color: black;
+    }
+
+    #hint {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    #hint kbd {
+      background: #444;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: inherit;
+      margin: 0 2px;
+    }
+
+    /* Hide hint on mobile/touch devices */
+    @media (hover: none),
+    (max-width: 768px) {
+      #hint {
+        display: none;
       }
-      #map {
-        transform-origin: top left;
-      }
-      #container {
-        overflow: hidden;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="container"></div>
-    <div id="minimap-container">
-      <img id="minimap"></img>
-      <div id="minimap-view"></div>
+    }
+
+    /* Minimap */
+    #minimap {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      width: 400px;
+      max-height: 600px;
+      background: #2d2d2d;
+      border: 1px solid #444;
+      border-radius: 6px;
+      overflow: hidden;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    #minimap.visible {
+      display: block;
+    }
+
+    #minimap-content {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #minimap-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #minimap-viewport {
+      position: absolute;
+      border: 2px solid #0078d4;
+      background: rgba(0, 120, 212, 0.15);
+      cursor: move;
+      pointer-events: auto;
+    }
+
+    #minimap-content.dark-mode #minimap-canvas {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    #drop-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 120, 212, 0.2);
+      border: 3px dashed #0078d4;
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #0078d4;
+    }
+
+    #drop-overlay.active {
+      display: flex;
+    }
+
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      gap: 16px;
+    }
+
+    #empty-state.hidden {
+      display: none;
+    }
+
+    #empty-state .empty-title {
+      font-size: 32px;
+      font-weight: 600;
+      color: #ccc;
+    }
+
+    #empty-state .empty-subtitle {
+      font-size: 18px;
+      color: #666;
+    }
+
+    #empty-state .empty-divider {
+      font-size: 14px;
+      color: #555;
+      margin: 8px 0;
+    }
+
+    #empty-state .empty-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    #empty-state button,
+    #empty-state select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #empty-state button:hover,
+    #empty-state select:hover {
+      background: #555;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="toolbar">
+    <div class="group">
+      <input type="file" id="file-input" accept=".svg">
+      <select class="examples-select" title="Load example SVG">
+        <option value="">Examples...</option>
+      </select>
     </div>
-    <script type="text/javascript">
-      const container = document.getElementById('container');
-      const minimap = document.getElementById('minimap');
-      const minimapView = document.getElementById('minimap-view');
-      const minimapContainer = document.getElementById('minimap-container');
+    <div class="group">
+      <button id="zoom-out" title="Zoom out (-)">-</button>
+      <span id="zoom-level">100%</span>
+      <button id="zoom-in" title="Zoom in (+)">+</button>
+      <button id="zoom-reset" title="Reset zoom (0)">Reset</button>
+    </div>
+    <div class="group">
+      <button id="dark-mode-toggle" title="Toggle dark mode for SVG (D)">Dark Mode</button>
+      <button id="minimap-toggle" title="Toggle minimap (M)">Minimap</button>
+    </div>
+    <div class="group">
+      <input type="search" id="search-input" placeholder="Regex search...">
+      <button id="search-prev" title="Previous match (Shift+Enter)">Prev</button>
+      <span id="search-info">0 / 0</span>
+      <button id="search-next" title="Next match (Enter)">Next</button>
+    </div>
+  </div>
 
-      const data = new TextDecoder().decode(Uint8Array.from(atob("PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+DQo8IURPQ1RZUEUgc3ZnIFBVQkxJQyAiLS8vVzNDLy9EVEQgU1ZHIDEuMS8vRU4iDQogImh0dHA6Ly93d3cudzMub3JnL0dyYXBoaWNzL1NWRy8xLjEvRFREL3N2ZzExLmR0ZCI+DQo8IS0tIEdlbmVyYXRlZCBieSBncmFwaHZpeiB2ZXJzaW9uIDEyLjAuMCAoMjAyNDA3MDQuMDc1NCkNCiAtLT4NCjwhLS0gUGFnZXM6IDEgLS0+DQo8c3ZnIHdpZHRoPSIzNjA5cHQiIGhlaWdodD0iMTYwNHB0Ig0KIHZpZXdCb3g9IjAuMDAgMC4wMCAzNjA4LjYyIDE2MDMuNTAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiPg0KPGcgaWQ9ImdyYXBoMCIgY2xhc3M9ImdyYXBoIiB0cmFuc2Zvcm09InNjYWxlKDEgMSkgcm90YXRlKDApIHRyYW5zbGF0ZSg0IDE1OTkuNSkiPg0KPHBvbHlnb24gZmlsbD0id2hpdGUiIHN0cm9rZT0ibm9uZSIgcG9pbnRzPSItNCw0IC00LC0xNTk5LjUgMzYwNC42MiwtMTU5OS41IDM2MDQuNjIsNCAtNCw0Ii8+DQo8IS0tIE9jZWFuQmx1ZXByaW50X0MgLS0+DQo8ZyBpZD0ibm9kZTEiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5PY2VhbkJsdWVwcmludF9DPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiM4OGZmODgiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMCwtMTUzOS43NSAwLC0xNTk1IDU1Mi4yNSwtMTU5NSA1NTIuMjUsLTE1MzkuNzUgMCwtMTUzOS43NSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSI4IiB5PSItMTU3Ny43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5DbGFzc0V4cG9ydDogT2NlYW5CbHVlcHJpbnRfQzwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iOCIgeT0iLTE1NjEuOTUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkFN1cGVyU3RydWN0OiBpbXBvcnQgL1NjcmlwdC9UcmVzR2FtZSYjNDU7Jmd0O1RyZXNPY2VhblNoYWRlckNvbnRyb2xsZXI8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjgiIHk9Ii0xNTQ2LjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkFByb3BlcnRpZXM6PC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50IC0tPg0KPGcgaWQ9Im5vZGUyIiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZmY4ODg4IiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjU3MC4xMiwtMTU0OS4zOCA1NzAuMTIsLTE1ODUuMzggOTE2LjEyLC0xNTg1LjM4IDkxNi4xMiwtMTU0OS4zOCA1NzAuMTIsLTE1NDkuMzgiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iNTc4LjEyIiB5PSItMTU2Mi4wOCIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RnVuY3Rpb24gRXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDwvdGV4dD4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMCAtLT4NCjxnIGlkPSJub2RlMyIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzA8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIzNzYuMjUsLTEzOTEgMzc2LjI1LC0xNDU0LjI1IDExMTAsLTE0NTQuMjUgMTExMCwtMTM5MSAzNzYuMjUsLTEzOTEiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9Ijc0My4xMiIgeT0iLTE0MzYuOTUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPk9jZWFuQmx1ZXByaW50X0M6OkV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnQ6MDwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjM3Ni4yNSwtMTQzMC41IDExMTAsLTE0MzAuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIzODQuMjUiIHk9Ii0xNDEzLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX0NvbXB1dGVkSnVtcDwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMzg0LjI1IiB5PSItMTM5Ny40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfTG9jYWxWYXJpYWJsZSBleHBvcnQgT2NlYW5CbHVlcHJpbnRfQyYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnQmIzQ1OyZndDtFbnRyeVBvaW50PC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50JiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMCAtLT4NCjxnIGlkPSJlZGdlMSIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnQmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18wPC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik03NDMuMTIsLTE1NDkuMTZDNzQzLjEyLC0xNTI4LjcyIDc0My4xMiwtMTQ5My45MSA3NDMuMTIsLTE0NjYuMTIiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9Ijc0Ni42MywtMTQ2Ni4yMiA3NDMuMTMsLTE0NTYuMjIgNzM5LjYzLC0xNDY2LjIyIDc0Ni42MywtMTQ2Ni4yMiIvPg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18xMCAtLT4NCjxnIGlkPSJub2RlNCIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzEwPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjYwNi4yNSwtMTE2My41IDI2MDYuMjUsLTEzMDUuNSAzNTM4LC0xMzA1LjUgMzUzOCwtMTE2My41IDI2MDYuMjUsLTExNjMuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMzA3Mi4xMiIgeT0iLTEyODguMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDoxMDwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjI2MDYuMjUsLTEyODEuNzUgMzUzOCwtMTI4MS43NSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyNjE0LjI1IiB5PSItMTI2NC40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfTGV0T2JqPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyNjE0LjI1IiB5PSItMTI0OC43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9Mb2NhbFZhcmlhYmxlIGV4cG9ydCBPY2VhbkJsdWVwcmludF9DJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludCYjNDU7Jmd0O0NhbGxGdW5jX0dldEdhbWVTdGF0ZV9SZXR1cm5WYWx1ZTI8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI2MTQuMjUiIHk9Ii0xMjMyLjk1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9Db250ZXh0PC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyNjE0LjI1IiB5PSItMTIxNy4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJDilJzilJDilJzilJBFWF9PYmplY3RDb25zdCBpbXBvcnQgL1NjcmlwdC9FbmdpbmUmIzQ1OyZndDtEZWZhdWx0X19HYW1lcGxheVN0YXRpY3M8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI2MTQuMjUiIHk9Ii0xMjAxLjQ1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJDilJzilJDilJzilJBFWF9GaW5hbEZ1bmN0aW9uIGltcG9ydCAvU2NyaXB0L0VuZ2luZSYjNDU7Jmd0O0dhbWVwbGF5U3RhdGljcyYjNDU7Jmd0O0dldEdhbWVTdGF0ZTwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjYxNC4yNSIgeT0iLTExODUuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQRVhfU2VsZjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjYxNC4yNSIgeT0iLTExNjkuOTUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkOKUnOKUkOKUnOKUkFJWYWx1ZSA9IGV4cG9ydCBPY2VhbkJsdWVwcmludF9DJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludCYjNDU7Jmd0O0NhbGxGdW5jX0dldEdhbWVTdGF0ZV9SZXR1cm5WYWx1ZTI8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzUzIC0tPg0KPGcgaWQ9Im5vZGU1IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fNTM8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNTkzLjg4LC05NTkuNjIgMjU5My44OCwtMTA1NC4zOCAzNTUwLjM4LC0xMDU0LjM4IDM1NTAuMzgsLTk1OS42MiAyNTkzLjg4LC05NTkuNjIiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjMwNzIuMTIiIHk9Ii0xMDM3LjA4IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5PY2VhbkJsdWVwcmludF9DOjpFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50OjUzPC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjU5My44OCwtMTAzMC42MiAzNTUwLjM4LC0xMDMwLjYyIi8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI2MDEuODgiIHk9Ii0xMDEzLjMzIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9MZXQ8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI2MDEuODgiIHk9Ii05OTcuNTgiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0xvY2FsVmFyaWFibGUgZXhwb3J0IE9jZWFuQmx1ZXByaW50X0MmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50JiM0NTsmZ3Q7SzJOb2RlX0R5bmFtaWNDYXN0X0FzVHJlc19HYW1lX1N0YXRlMjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjYwMS44OCIgeT0iLTk4MS44MyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfRHluYW1pY0Nhc3QgaW1wb3J0IC9TY3JpcHQvVHJlc0dhbWUmIzQ1OyZndDtUcmVzR2FtZVN0YXRlPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyNjAxLjg4IiB5PSItOTY2LjA4IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJDilJzilJDilJzilJBFWF9Mb2NhbFZhcmlhYmxlIGV4cG9ydCBPY2VhbkJsdWVwcmludF9DJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludCYjNDU7Jmd0O0NhbGxGdW5jX0dldEdhbWVTdGF0ZV9SZXR1cm5WYWx1ZTI8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzEwJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fNTMgLS0+DQo8ZyBpZD0iZWRnZTIiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18xMCYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzUzPC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0zMDcyLjEyLC0xMTYzLjA4QzMwNzIuMTIsLTExMzEuOTMgMzA3Mi4xMiwtMTA5NS43NSAzMDcyLjEyLC0xMDY2LjE3Ii8+DQo8cG9seWdvbiBmaWxsPSJibGFjayIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIzMDc1LjYzLC0xMDY2LjI4IDMwNzIuMTMsLTEwNTYuMjggMzA2OC42MywtMTA2Ni4yOCAzMDc1LjYzLC0xMDY2LjI4Ii8+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzg5IC0tPg0KPGcgaWQ9Im5vZGU2IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fODk8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNTg1LjYyLC03NTUuNzUgMjU4NS42MiwtODUwLjUgMzU1OC42MiwtODUwLjUgMzU1OC42MiwtNzU1Ljc1IDI1ODUuNjIsLTc1NS43NSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMzA3Mi4xMiIgeT0iLTgzMy4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5PY2VhbkJsdWVwcmludF9DOjpFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50Ojg5PC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjU4NS42MiwtODI2Ljc1IDM1NTguNjIsLTgyNi43NSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyNTkzLjYyIiB5PSItODA5LjQ1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9MZXQ8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI1OTMuNjIiIHk9Ii03OTMuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfTG9jYWxWYXJpYWJsZSBleHBvcnQgT2NlYW5CbHVlcHJpbnRfQyYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnQmIzQ1OyZndDtLMk5vZGVfRHluYW1pY0Nhc3RfYlN1Y2Nlc3MyPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyNTkzLjYyIiB5PSItNzc3Ljk1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9QcmltaXRpdmVDYXN0IE9iamVjdFRvQm9vbDwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjU5My42MiIgeT0iLTc2Mi4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJDilJzilJDilJzilJBFWF9Mb2NhbFZhcmlhYmxlIGV4cG9ydCBPY2VhbkJsdWVwcmludF9DJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludCYjNDU7Jmd0O0syTm9kZV9EeW5hbWljQ2FzdF9Bc1RyZXNfR2FtZV9TdGF0ZTI8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzUzJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fODkgLS0+DQo8ZyBpZD0iZWRnZTMiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X181MyYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzg5PC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0zMDcyLjEyLC05NTkuMThDMzA3Mi4xMiwtOTMwLjI2IDMwNzIuMTIsLTg5Mi45MyAzMDcyLjEyLC04NjIuMTQiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjMwNzUuNjMsLTg2Mi4yMSAzMDcyLjEzLC04NTIuMjEgMzA2OC42MywtODYyLjIxIDMwNzUuNjMsLTg2Mi4yMSIvPg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18xMTggLS0+DQo8ZyBpZD0ibm9kZTciIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18xMTg8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNjMxLC02MzguNzUgMjYzMSwtNzAyIDM1MTMuMjUsLTcwMiAzNTEzLjI1LC02MzguNzUgMjYzMSwtNjM4Ljc1Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSIzMDcyLjEyIiB5PSItNjg0LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPk9jZWFuQmx1ZXByaW50X0M6OkV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnQ6MTE4PC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjYzMSwtNjc4LjI1IDM1MTMuMjUsLTY3OC4yNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyNjM5IiB5PSItNjYwLjk1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9KdW1wSWZOb3QgNDA5PC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyNjM5IiB5PSItNjQ1LjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0xvY2FsVmFyaWFibGUgZXhwb3J0IE9jZWFuQmx1ZXByaW50X0MmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50JiM0NTsmZ3Q7SzJOb2RlX0R5bmFtaWNDYXN0X2JTdWNjZXNzMjwvdGV4dD4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fODkmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18xMTggLS0+DQo8ZyBpZD0iZWRnZTQiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X184OSYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzExODwvdGl0bGU+DQo8cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBkPSJNMzA3Mi4xMiwtNzU1LjI5QzMwNzIuMTIsLTc0MS42OSAzMDcyLjEyLC03MjYuOTIgMzA3Mi4xMiwtNzEzLjYyIi8+DQo8cG9seWdvbiBmaWxsPSJibGFjayIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIzMDc1LjYzLC03MTMuODggMzA3Mi4xMywtNzAzLjg4IDMwNjguNjMsLTcxMy44OCAzMDc1LjYzLC03MTMuODgiLz4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTMyIC0tPg0KPGcgaWQ9Im5vZGU4IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTMyPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjU0OS42MiwtNDQ0IDI1NDkuNjIsLTU3MC4yNSAzNTIyLjYyLC01NzAuMjUgMzUyMi42MiwtNDQ0IDI1NDkuNjIsLTQ0NCIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMzAzNi4xMiIgeT0iLTU1Mi45NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDoxMzI8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNTQ5LjYyLC01NDYuNSAzNTIyLjYyLC01NDYuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyNTU3LjYyIiB5PSItNTI5LjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX0xldE9iajwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjU1Ny42MiIgeT0iLTUxMy40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfTG9jYWxWYXJpYWJsZSBleHBvcnQgT2NlYW5CbHVlcHJpbnRfQyYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnQmIzQ1OyZndDtDYWxsRnVuY19HZXRTY2VuZU1hbmFnZXJfUmV0dXJuVmFsdWUyPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyNTU3LjYyIiB5PSItNDk3LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0NvbnRleHQ8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI1NTcuNjIiIHk9Ii00ODEuOTUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkOKUnOKUkOKUnOKUkEVYX0xvY2FsVmFyaWFibGUgZXhwb3J0IE9jZWFuQmx1ZXByaW50X0MmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50JiM0NTsmZ3Q7SzJOb2RlX0R5bmFtaWNDYXN0X0FzVHJlc19HYW1lX1N0YXRlMjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjU1Ny42MiIgeT0iLTQ2Ni4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJDilJzilJDilJzilJBFWF9GaW5hbEZ1bmN0aW9uIGltcG9ydCAvU2NyaXB0L1RyZXNHYW1lJiM0NTsmZ3Q7VHJlc0dhbWVTdGF0ZSYjNDU7Jmd0O0dldFNjZW5lTWFuYWdlcjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjU1Ny42MiIgeT0iLTQ1MC40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQUlZhbHVlID0gZXhwb3J0IE9jZWFuQmx1ZXByaW50X0MmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50JiM0NTsmZ3Q7Q2FsbEZ1bmNfR2V0U2NlbmVNYW5hZ2VyX1JldHVyblZhbHVlMjwvdGV4dD4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTE4JiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTMyIC0tPg0KPGcgaWQ9ImVkZ2U2IiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTE4JiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTMyPC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0zMDY1LjE4LC02MzguMjhDMzA2MS41NiwtNjIyLjA3IDMwNTYuOTcsLTYwMS40OSAzMDUyLjUxLC01ODEuNTEiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjMwNTUuOTcsLTU4MC45NyAzMDUwLjM4LC01NzEuOTcgMzA0OS4xNCwtNTgyLjUgMzA1NS45NywtNTgwLjk3Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSIzMDY2LjM4IiB5PSItNTkxLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPklGPC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X180MDkgLS0+DQo8ZyBpZD0ibm9kZTE3IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fNDA5PC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjU1Ny41LC0wLjUgMjU1Ny41LC02My43NSAzMDEwLjc1LC02My43NSAzMDEwLjc1LC0wLjUgMjU1Ny41LC0wLjUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjI3ODQuMTIiIHk9Ii00Ni40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDo0MDk8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNTU3LjUsLTQwIDMwMTAuNzUsLTQwIi8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI1NjUuNSIgeT0iLTIyLjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX1JldHVybjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjU2NS41IiB5PSItNi45NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfTm90aGluZzwvdGV4dD4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTE4JiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fNDA5IC0tPg0KPGcgaWQ9ImVkZ2U1IiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTE4OmUmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X180MDk8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZWQiIGQ9Ik0zNTE0LjI1LC02NzAuMzhDMzU4OC4yLC02NzAuMzggMzU1MS4xMiwtNTgyLjA4IDM1NTEuMTIsLTUwOC4xMiAzNTUxLjEyLC01MDguMTIgMzU1MS4xMiwtNTA4LjEyIDM1NTEuMTIsLTE1NiAzNTUxLjEyLC0xMDEuNzEgMzI0Ny42NCwtNjcuMSAzMDIyLjQ3LC00OC44OSIvPg0KPHBvbHlnb24gZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZWQiIHBvaW50cz0iMzAyMi44OSwtNDUuNDIgMzAxMi42NSwtNDguMTEgMzAyMi4zMywtNTIuMzkgMzAyMi44OSwtNDUuNDIiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjM1NzUuODgiIHk9Ii0zMjIuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+SUYgTk9UPC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18xNzQgLS0+DQo8ZyBpZD0ibm9kZTkiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18xNzQ8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNTU4Ljg4LC0yNzIuODggMjU1OC44OCwtMzgzLjM4IDM1MTUuMzgsLTM4My4zOCAzNTE1LjM4LC0yNzIuODggMjU1OC44OCwtMjcyLjg4Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSIzMDM3LjEyIiB5PSItMzY2LjA3IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5PY2VhbkJsdWVwcmludF9DOjpFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50OjE3NDwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjI1NTguODgsLTM1OS42MiAzNTE1LjM4LC0zNTkuNjIiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjU2Ni44OCIgeT0iLTM0Mi4zMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfQ29udGV4dDwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjU2Ni44OCIgeT0iLTMyNi41NyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfTG9jYWxWYXJpYWJsZSBleHBvcnQgT2NlYW5CbHVlcHJpbnRfQyYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnQmIzQ1OyZndDtDYWxsRnVuY19HZXRTY2VuZU1hbmFnZXJfUmV0dXJuVmFsdWUyPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyNTY2Ljg4IiB5PSItMzEwLjgyIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9GaW5hbEZ1bmN0aW9uIGltcG9ydCAvU2NyaXB0L1RyZXNHYW1lJiM0NTsmZ3Q7VHJlc1NjZW5lTWFuYWdlciYjNDU7Jmd0O1NldE9jZWFuU2hhZGVyQ29udHJvbGxlcjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjU2Ni44OCIgeT0iLTI5NS4wNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQRVhfU2VsZjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjU2Ni44OCIgeT0iLTI3OS4zMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQUlZhbHVlID0gbnVsbDwvdGV4dD4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTMyJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTc0IC0tPg0KPGcgaWQ9ImVkZ2U3IiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTMyJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTc0PC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0zMDM2LjQ4LC00NDMuNzJDMzAzNi41NywtNDI3Ljk0IDMwMzYuNjYsLTQxMC45NSAzMDM2Ljc1LC0zOTUuMDEiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjMwNDAuMjUsLTM5NS4xNSAzMDM2LjgxLC0zODUuMTMgMzAzMy4yNSwtMzk1LjExIDMwNDAuMjUsLTM5NS4xNSIvPg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yMDcgLS0+DQo8ZyBpZD0ibm9kZTEwIiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMjA3PC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjcxNS41LC0xMzMuMjUgMjcxNS41LC0xODAuNzUgMzE2OC43NSwtMTgwLjc1IDMxNjguNzUsLTEzMy4yNSAyNzE1LjUsLTEzMy4yNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMjk0Mi4xMiIgeT0iLTE2My40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDoyMDc8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNzE1LjUsLTE1NyAzMTY4Ljc1LC0xNTciLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjcyMy41IiB5PSItMTM5LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX0p1bXAgNDA5PC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18xNzQmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yMDcgLS0+DQo8ZyBpZD0iZWRnZTgiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18xNzQmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yMDc8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTMwMDYuNTQsLTI3Mi42OEMyOTkxLjQ5LC0yNDUuODkgMjk3My44MywtMjE0LjQ1IDI5NjAuODEsLTE5MS4yNyIvPg0KPHBvbHlnb24gZmlsbD0iYmxhY2siIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjk2My44OCwtMTg5LjU3IDI5NTUuOTMsLTE4Mi41NyAyOTU3Ljc3LC0xOTMgMjk2My44OCwtMTg5LjU3Ii8+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzIwNyYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzQwOSAtLT4NCjxnIGlkPSJlZGdlOSIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzIwNyYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzQwOTwvdGl0bGU+DQo8cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBkPSJNMjkxMi40MSwtMTMyLjg5QzI4OTAuMDIsLTExNS40OCAyODU4LjgzLC05MS4yMiAyODMyLjgyLC03MC45OSIvPg0KPHBvbHlnb24gZmlsbD0iYmxhY2siIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjgzNS4wOSwtNjguMzMgMjgyNS4wNSwtNjQuOTUgMjgzMC43OSwtNzMuODUgMjgzNS4wOSwtNjguMzMiLz4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMjEyIC0tPg0KPGcgaWQ9Im5vZGUxMSIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzIxMjwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjE2MTMuMzgsLTkzNiAxNjEzLjM4LC0xMDc4IDI1MzYuODgsLTEwNzggMjUzNi44OCwtOTM2IDE2MTMuMzgsLTkzNiIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMjA3NS4xMiIgeT0iLTEwNjAuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDoyMTI8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIxNjEzLjM4LC0xMDU0LjI1IDI1MzYuODgsLTEwNTQuMjUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTYyMS4zOCIgeT0iLTEwMzYuOTUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX0xldE9iajwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTYyMS4zOCIgeT0iLTEwMjEuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfTG9jYWxWYXJpYWJsZSBleHBvcnQgT2NlYW5CbHVlcHJpbnRfQyYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnQmIzQ1OyZndDtDYWxsRnVuY19HZXRHYW1lU3RhdGVfUmV0dXJuVmFsdWU8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjE2MjEuMzgiIHk9Ii0xMDA1LjQ1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9Db250ZXh0PC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIxNjIxLjM4IiB5PSItOTg5LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkOKUnOKUkOKUnOKUkEVYX09iamVjdENvbnN0IGltcG9ydCAvU2NyaXB0L0VuZ2luZSYjNDU7Jmd0O0RlZmF1bHRfX0dhbWVwbGF5U3RhdGljczwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTYyMS4zOCIgeT0iLTk3My45NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQRVhfRmluYWxGdW5jdGlvbiBpbXBvcnQgL1NjcmlwdC9FbmdpbmUmIzQ1OyZndDtHYW1lcGxheVN0YXRpY3MmIzQ1OyZndDtHZXRHYW1lU3RhdGU8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjE2MjEuMzgiIHk9Ii05NTguMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQRVhfU2VsZjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTYyMS4zOCIgeT0iLTk0Mi40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQUlZhbHVlID0gZXhwb3J0IE9jZWFuQmx1ZXByaW50X0MmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50JiM0NTsmZ3Q7Q2FsbEZ1bmNfR2V0R2FtZVN0YXRlX1JldHVyblZhbHVlPC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yNTUgLS0+DQo8ZyBpZD0ibm9kZTEyIiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMjU1PC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMTYwMSwtNzU1Ljc1IDE2MDEsLTg1MC41IDI1NDkuMjUsLTg1MC41IDI1NDkuMjUsLTc1NS43NSAxNjAxLC03NTUuNzUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjIwNzUuMTIiIHk9Ii04MzMuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDoyNTU8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIxNjAxLC04MjYuNzUgMjU0OS4yNSwtODI2Ljc1Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjE2MDkiIHk9Ii04MDkuNDUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX0xldDwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTYwOSIgeT0iLTc5My43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9Mb2NhbFZhcmlhYmxlIGV4cG9ydCBPY2VhbkJsdWVwcmludF9DJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludCYjNDU7Jmd0O0syTm9kZV9EeW5hbWljQ2FzdF9Bc1RyZXNfR2FtZV9TdGF0ZTwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTYwOSIgeT0iLTc3Ny45NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfRHluYW1pY0Nhc3QgaW1wb3J0IC9TY3JpcHQvVHJlc0dhbWUmIzQ1OyZndDtUcmVzR2FtZVN0YXRlPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIxNjA5IiB5PSItNzYyLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkOKUnOKUkOKUnOKUkEVYX0xvY2FsVmFyaWFibGUgZXhwb3J0IE9jZWFuQmx1ZXByaW50X0MmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50JiM0NTsmZ3Q7Q2FsbEZ1bmNfR2V0R2FtZVN0YXRlX1JldHVyblZhbHVlPC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yMTImIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yNTUgLS0+DQo8ZyBpZD0iZWRnZTEwIiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMjEyJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMjU1PC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0yMDc1LjEyLC05MzUuNjhDMjA3NS4xMiwtOTExLjYzIDIwNzUuMTIsLTg4NS4wMyAyMDc1LjEyLC04NjIuMDciLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjIwNzguNjMsLTg2Mi4yOSAyMDc1LjEzLC04NTIuMjkgMjA3MS42MywtODYyLjI5IDIwNzguNjMsLTg2Mi4yOSIvPg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yOTEgLS0+DQo8ZyBpZD0ibm9kZTEzIiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMjkxPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMTU5Mi43NSwtNjIzIDE1OTIuNzUsLTcxNy43NSAyNTU3LjUsLTcxNy43NSAyNTU3LjUsLTYyMyAxNTkyLjc1LC02MjMiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjIwNzUuMTIiIHk9Ii03MDAuNDUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPk9jZWFuQmx1ZXByaW50X0M6OkV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnQ6MjkxPC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMTU5Mi43NSwtNjk0IDI1NTcuNSwtNjk0Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjE2MDAuNzUiIHk9Ii02NzYuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfTGV0PC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIxNjAwLjc1IiB5PSItNjYwLjk1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9Mb2NhbFZhcmlhYmxlIGV4cG9ydCBPY2VhbkJsdWVwcmludF9DJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludCYjNDU7Jmd0O0syTm9kZV9EeW5hbWljQ2FzdF9iU3VjY2VzczwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTYwMC43NSIgeT0iLTY0NS4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9QcmltaXRpdmVDYXN0IE9iamVjdFRvQm9vbDwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTYwMC43NSIgeT0iLTYyOS40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQRVhfTG9jYWxWYXJpYWJsZSBleHBvcnQgT2NlYW5CbHVlcHJpbnRfQyYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnQmIzQ1OyZndDtLMk5vZGVfRHluYW1pY0Nhc3RfQXNUcmVzX0dhbWVfU3RhdGU8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzI1NSYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzI5MSAtLT4NCjxnIGlkPSJlZGdlMTEiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yNTUmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yOTE8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTIwNzUuMTIsLTc1NS4yOUMyMDc1LjEyLC03NDYuODMgMjA3NS4xMiwtNzM3LjkyIDIwNzUuMTIsLTcyOS4yIi8+DQo8cG9seWdvbiBmaWxsPSJibGFjayIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyMDc4LjYzLC03MjkuNCAyMDc1LjEzLC03MTkuNCAyMDcxLjYzLC03MjkuNCAyMDc4LjYzLC03MjkuNCIvPg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18zMjAgLS0+DQo8ZyBpZD0ibm9kZTE0IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMzIwPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMTYzOC4xMiwtNDc1LjUgMTYzOC4xMiwtNTM4Ljc1IDI1MTIuMTIsLTUzOC43NSAyNTEyLjEyLC00NzUuNSAxNjM4LjEyLC00NzUuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMjA3NS4xMiIgeT0iLTUyMS40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDozMjA8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIxNjM4LjEyLC01MTUgMjUxMi4xMiwtNTE1Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjE2NDYuMTIiIHk9Ii00OTcuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfSnVtcElmTm90IDQwOTwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTY0Ni4xMiIgeT0iLTQ4MS45NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfTG9jYWxWYXJpYWJsZSBleHBvcnQgT2NlYW5CbHVlcHJpbnRfQyYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnQmIzQ1OyZndDtLMk5vZGVfRHluYW1pY0Nhc3RfYlN1Y2Nlc3M8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzI5MSYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzMyMCAtLT4NCjxnIGlkPSJlZGdlMTIiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yOTEmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18zMjA8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTIwNzUuMTIsLTYyMi43M0MyMDc1LjEyLC01OTkuODcgMjA3NS4xMiwtNTcyLjU0IDIwNzUuMTIsLTU1MC4zMSIvPg0KPHBvbHlnb24gZmlsbD0iYmxhY2siIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjA3OC42MywtNTUwLjM4IDIwNzUuMTMsLTU0MC4zOCAyMDcxLjYzLC01NTAuMzggMjA3OC42MywtNTUwLjM4Ii8+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzMzNCAtLT4NCjxnIGlkPSJub2RlMTUiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18zMzQ8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIxNTM4Ljc1LC0yNjUgMTUzOC43NSwtMzkxLjI1IDI1MDMuNSwtMzkxLjI1IDI1MDMuNSwtMjY1IDE1MzguNzUsLTI2NSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMjAyMS4xMiIgeT0iLTM3My45NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDozMzQ8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIxNTM4Ljc1LC0zNjcuNSAyNTAzLjUsLTM2Ny41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjE1NDYuNzUiIHk9Ii0zNTAuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfTGV0T2JqPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIxNTQ2Ljc1IiB5PSItMzM0LjQ1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9Mb2NhbFZhcmlhYmxlIGV4cG9ydCBPY2VhbkJsdWVwcmludF9DJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludCYjNDU7Jmd0O0NhbGxGdW5jX0dldFNjZW5lTWFuYWdlcl9SZXR1cm5WYWx1ZTwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTU0Ni43NSIgeT0iLTMxOC43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9Db250ZXh0PC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIxNTQ2Ljc1IiB5PSItMzAyLjk1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJDilJzilJDilJzilJBFWF9Mb2NhbFZhcmlhYmxlIGV4cG9ydCBPY2VhbkJsdWVwcmludF9DJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludCYjNDU7Jmd0O0syTm9kZV9EeW5hbWljQ2FzdF9Bc1RyZXNfR2FtZV9TdGF0ZTwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTU0Ni43NSIgeT0iLTI4Ny4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJDilJzilJDilJzilJBFWF9GaW5hbEZ1bmN0aW9uIGltcG9ydCAvU2NyaXB0L1RyZXNHYW1lJiM0NTsmZ3Q7VHJlc0dhbWVTdGF0ZSYjNDU7Jmd0O0dldFNjZW5lTWFuYWdlcjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTU0Ni43NSIgeT0iLTI3MS40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQUlZhbHVlID0gZXhwb3J0IE9jZWFuQmx1ZXByaW50X0MmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50JiM0NTsmZ3Q7Q2FsbEZ1bmNfR2V0U2NlbmVNYW5hZ2VyX1JldHVyblZhbHVlPC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18zMjAmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18zMzQgLS0+DQo8ZyBpZD0iZWRnZTE0IiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMzIwJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMzM0PC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0yMDY1LjcyLC00NzUuMjlDMjA1OS41NiwtNDU1LjEgMjA1MS4yMywtNDI3LjgxIDIwNDMuNDQsLTQwMi4yOCIvPg0KPHBvbHlnb24gZmlsbD0iYmxhY2siIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjA0Ni44NSwtNDAxLjQ3IDIwNDAuNTksLTM5Mi45MiAyMDQwLjE2LC00MDMuNTEgMjA0Ni44NSwtNDAxLjQ3Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSIyMDU4LjM4IiB5PSItNDEyLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPklGPC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18zMjAmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X180MDkgLS0+DQo8ZyBpZD0iZWRnZTEzIiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMzIwOmUmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X180MDk8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZWQiIGQ9Ik0yNTEzLjEyLC01MDcuMTJDMjU0MC40LC01MDcuMTIgMjUzOC4wOSwtMjg4Ljk3IDI1NTAuMTIsLTI2NC41IDI1OTAuODQsLTE4MS43IDI2NzMuMzIsLTExMS4yOCAyNzI4LjY2LC03MC41OCIvPg0KPHBvbHlnb24gZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZWQiIHBvaW50cz0iMjczMC4zOCwtNzMuNjYgMjczNi40MSwtNjQuOTUgMjcyNi4yNywtNjcuOTkgMjczMC4zOCwtNzMuNjYiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjI1OTMuODgiIHk9Ii0yMzMuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+SUYgTk9UPC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18zNzYgLS0+DQo8ZyBpZD0ibm9kZTE2IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMzc2PC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMTU1MywtMTAxLjc1IDE1NTMsLTIxMi4yNSAyNTAxLjI1LC0yMTIuMjUgMjUwMS4yNSwtMTAxLjc1IDE1NTMsLTEwMS43NSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMjAyNy4xMiIgeT0iLTE5NC45NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDozNzY8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIxNTUzLC0xODguNSAyNTAxLjI1LC0xODguNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIxNTYxIiB5PSItMTcxLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX0NvbnRleHQ8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjE1NjEiIHk9Ii0xNTUuNDUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0xvY2FsVmFyaWFibGUgZXhwb3J0IE9jZWFuQmx1ZXByaW50X0MmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50JiM0NTsmZ3Q7Q2FsbEZ1bmNfR2V0U2NlbmVNYW5hZ2VyX1JldHVyblZhbHVlPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIxNTYxIiB5PSItMTM5LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0ZpbmFsRnVuY3Rpb24gaW1wb3J0IC9TY3JpcHQvVHJlc0dhbWUmIzQ1OyZndDtUcmVzU2NlbmVNYW5hZ2VyJiM0NTsmZ3Q7U2V0T2NlYW5TaGFkZXJDb250cm9sbGVyPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIxNTYxIiB5PSItMTIzLjk1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJDilJzilJDilJzilJBFWF9Ob09iamVjdDwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTU2MSIgeT0iLTEwOC4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBSVmFsdWUgPSBudWxsPC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18zMzQmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18zNzYgLS0+DQo8ZyBpZD0iZWRnZTE1IiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMzM0JiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMzc2PC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0yMDIzLjM0LC0yNjQuNjNDMjAyMy44MSwtMjUxLjQ2IDIwMjQuMywtMjM3LjUyIDIwMjQuNzgsLTIyNC4yMSIvPg0KPHBvbHlnb24gZmlsbD0iYmxhY2siIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjAyOC4yNywtMjI0LjM1IDIwMjUuMTMsLTIxNC4yMyAyMDIxLjI4LC0yMjQuMSAyMDI4LjI3LC0yMjQuMzUiLz4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMzc2JiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fNDA5IC0tPg0KPGcgaWQ9ImVkZ2UxNiIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzM3NiYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfT2NlYW5CbHVlcHJpbnRfXzQwOTwvdGl0bGU+DQo8cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBkPSJNMjM2NC4zOSwtMTAxLjI2QzI0MzguNDYsLTg5LjIzIDI1MTQuNjYsLTc2Ljg2IDI1ODEuNDcsLTY2LjAyIi8+DQo8cG9seWdvbiBmaWxsPSJibGFjayIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNTgxLjczLC02OS41MiAyNTkxLjA0LC02NC40NyAyNTgwLjYxLC02Mi42MSAyNTgxLjczLC02OS41MiIvPg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X180MTEgLS0+DQo8ZyBpZD0ibm9kZTE4IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fNDExPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMzA4Ny41LC0xMDk3IDMwODcuNSwtMTE0NC41IDM1NDAuNzUsLTExNDQuNSAzNTQwLjc1LC0xMDk3IDMwODcuNSwtMTA5NyIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMzMxNC4xMiIgeT0iLTExMjcuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDo0MTE8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIzMDg3LjUsLTExMjAuNzUgMzU0MC43NSwtMTEyMC43NSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIzMDk1LjUiIHk9Ii0xMTAzLjQ1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9FbmRPZlNjcmlwdDwvdGV4dD4NCjwvZz4NCjwhLS0gUmVjZWl2ZUVuZFBsYXkgLS0+DQo8ZyBpZD0ibm9kZTE5IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+UmVjZWl2ZUVuZFBsYXk8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2ZmODg4OCIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIxNDk5LjI1LC0xNTQ5LjM4IDE0OTkuMjUsLTE1ODUuMzggMTcwNSwtMTU4NS4zOCAxNzA1LC0xNTQ5LjM4IDE0OTkuMjUsLTE1NDkuMzgiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTUwNy4yNSIgeT0iLTE1NjIuMDgiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkZ1bmN0aW9uIFJlY2VpdmVFbmRQbGF5PC90ZXh0Pg0KPC9nPg0KPCEtLSBSZWNlaXZlRW5kUGxheV9fMCAtLT4NCjxnIGlkPSJub2RlMjAiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5SZWNlaXZlRW5kUGxheV9fMDwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjExMjgsLTEzOTEgMTEyOCwtMTQ1NC4yNSAyMDc2LjI1LC0xNDU0LjI1IDIwNzYuMjUsLTEzOTEgMTEyOCwtMTM5MSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMTYwMi4xMiIgeT0iLTE0MzYuOTUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPk9jZWFuQmx1ZXByaW50X0M6OlJlY2VpdmVFbmRQbGF5OjA8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIxMTI4LC0xNDMwLjUgMjA3Ni4yNSwtMTQzMC41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjExMzYiIHk9Ii0xNDEzLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX0xldFZhbHVlT25QZXJzaXN0ZW50RnJhbWUgZXhwb3J0IE9jZWFuQmx1ZXByaW50X0MmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50JiM0NTsmZ3Q7SzJOb2RlX0V2ZW50X0VuZFBsYXlSZWFzb248L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjExMzYiIHk9Ii0xMzk3LjQ1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9Mb2NhbFZhcmlhYmxlIGV4cG9ydCBPY2VhbkJsdWVwcmludF9DJiM0NTsmZ3Q7UmVjZWl2ZUVuZFBsYXkmIzQ1OyZndDtFbmRQbGF5UmVhc29uPC90ZXh0Pg0KPC9nPg0KPCEtLSBSZWNlaXZlRW5kUGxheSYjNDU7Jmd0O1JlY2VpdmVFbmRQbGF5X18wIC0tPg0KPGcgaWQ9ImVkZ2UxNyIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPlJlY2VpdmVFbmRQbGF5JiM0NTsmZ3Q7UmVjZWl2ZUVuZFBsYXlfXzA8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTE2MDIuMTIsLTE1NDkuMTZDMTYwMi4xMiwtMTUyOC43MiAxNjAyLjEyLC0xNDkzLjkxIDE2MDIuMTIsLTE0NjYuMTIiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjE2MDUuNjMsLTE0NjYuMjIgMTYwMi4xMywtMTQ1Ni4yMiAxNTk4LjYzLC0xNDY2LjIyIDE2MDUuNjMsLTE0NjYuMjIiLz4NCjwvZz4NCjwhLS0gUmVjZWl2ZUVuZFBsYXlfXzE4IC0tPg0KPGcgaWQ9Im5vZGUyMSIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPlJlY2VpdmVFbmRQbGF5X18xODwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjEzODcuODgsLTEyMDIuODggMTM4Ny44OCwtMTI2Ni4xMiAxODE2LjM4LC0xMjY2LjEyIDE4MTYuMzgsLTEyMDIuODggMTM4Ny44OCwtMTIwMi44OCIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMTYwMi4xMiIgeT0iLTEyNDguODMiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPk9jZWFuQmx1ZXByaW50X0M6OlJlY2VpdmVFbmRQbGF5OjE4PC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMTM4Ny44OCwtMTI0Mi4zOCAxODE2LjM4LC0xMjQyLjM4Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjEzOTUuODgiIHk9Ii0xMjI1LjA4IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9WaXJ0dWFsRnVuY3Rpb24gRXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTM5NS44OCIgeT0iLTEyMDkuMzMiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0ludENvbnN0IDIxMjwvdGV4dD4NCjwvZz4NCjwhLS0gUmVjZWl2ZUVuZFBsYXlfXzAmIzQ1OyZndDtSZWNlaXZlRW5kUGxheV9fMTggLS0+DQo8ZyBpZD0iZWRnZTE4IiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+UmVjZWl2ZUVuZFBsYXlfXzAmIzQ1OyZndDtSZWNlaXZlRW5kUGxheV9fMTg8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTE2MDIuMTIsLTEzOTAuODlDMTYwMi4xMiwtMTM2MCAxNjAyLjEyLC0xMzEyLjE1IDE2MDIuMTIsLTEyNzcuNzEiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjE2MDUuNjMsLTEyNzguMSAxNjAyLjEzLC0xMjY4LjEgMTU5OC42MywtMTI3OC4xIDE2MDUuNjMsLTEyNzguMSIvPg0KPC9nPg0KPCEtLSBSZWNlaXZlRW5kUGxheV9fMTgmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yMTIgLS0+DQo8ZyBpZD0iZWRnZTE5IiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+UmVjZWl2ZUVuZFBsYXlfXzE4OmUmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX09jZWFuQmx1ZXByaW50X18yMTI8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZWQiIGQ9Ik0xODE3LjM4LC0xMjM0LjVDMTkwOC43OSwtMTIzNC41IDE5ODMuMjIsLTExNTMuMTIgMjAyOC4xOSwtMTA4Ny45MiIvPg0KPHBvbHlnb24gZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZWQiIHBvaW50cz0iMjAzMS4wNiwtMTA4OS45MiAyMDMzLjc2LC0xMDc5LjY4IDIwMjUuMjYsLTEwODYgMjAzMS4wNiwtMTA4OS45MiIvPg0KPC9nPg0KPCEtLSBSZWNlaXZlRW5kUGxheV9fMzcgLS0+DQo8ZyBpZD0ibm9kZTIyIiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+UmVjZWl2ZUVuZFBsYXlfXzM3PC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMTI5MC43NSwtOTc1LjM4IDEyOTAuNzUsLTEwMzguNjIgMTU5NS41LC0xMDM4LjYyIDE1OTUuNSwtOTc1LjM4IDEyOTAuNzUsLTk3NS4zOCIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMTQ0My4xMiIgeT0iLTEwMjEuMzMiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPk9jZWFuQmx1ZXByaW50X0M6OlJlY2VpdmVFbmRQbGF5OjM3PC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMTI5MC43NSwtMTAxNC44OCAxNTk1LjUsLTEwMTQuODgiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMTI5OC43NSIgeT0iLTk5Ny41OCIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfUmV0dXJuPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIxMjk4Ljc1IiB5PSItOTgxLjgzIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9Ob3RoaW5nPC90ZXh0Pg0KPC9nPg0KPCEtLSBSZWNlaXZlRW5kUGxheV9fMTgmIzQ1OyZndDtSZWNlaXZlRW5kUGxheV9fMzcgLS0+DQo8ZyBpZD0iZWRnZTIwIiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+UmVjZWl2ZUVuZFBsYXlfXzE4JiM0NTsmZ3Q7UmVjZWl2ZUVuZFBsYXlfXzM3PC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0xNTgwLjM1LC0xMjAyLjYyQzE1NTIuMDYsLTExNjIuNSAxNTAyLjYyLC0xMDkyLjM4IDE0NzEuNDQsLTEwNDguMTYiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjE0NzQuMzksLTEwNDYuMjYgMTQ2NS43NiwtMTA0MC4xMSAxNDY4LjY3LC0xMDUwLjMgMTQ3NC4zOSwtMTA0Ni4yNiIvPg0KPC9nPg0KPCEtLSBSZWNlaXZlRW5kUGxheV9fMzkgLS0+DQo8ZyBpZD0ibm9kZTIzIiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+UmVjZWl2ZUVuZFBsYXlfXzM5PC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjkwOS43NSwtMTMyNC41IDI5MDkuNzUsLTEzNzIgMzIxNC41LC0xMzcyIDMyMTQuNSwtMTMyNC41IDI5MDkuNzUsLTEzMjQuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMzA2Mi4xMiIgeT0iLTEzNTQuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6UmVjZWl2ZUVuZFBsYXk6Mzk8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyOTA5Ljc1LC0xMzQ4LjI1IDMyMTQuNSwtMTM0OC4yNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyOTE3Ljc1IiB5PSItMTMzMC45NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfRW5kT2ZTY3JpcHQ8L3RleHQ+DQo8L2c+DQo8IS0tIFJlY2VpdmVCZWdpblBsYXkgLS0+DQo8ZyBpZD0ibm9kZTI0IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+UmVjZWl2ZUJlZ2luUGxheTwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZmY4ODg4IiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjIzNTUsLTE1NDkuMzggMjM1NSwtMTU4NS4zOCAyNTc3LjI1LC0xNTg1LjM4IDI1NzcuMjUsLTE1NDkuMzggMjM1NSwtMTU0OS4zOCIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyMzYzIiB5PSItMTU2Mi4wOCIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RnVuY3Rpb24gUmVjZWl2ZUJlZ2luUGxheTwvdGV4dD4NCjwvZz4NCjwhLS0gUmVjZWl2ZUJlZ2luUGxheV9fMCAtLT4NCjxnIGlkPSJub2RlMjUiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5SZWNlaXZlQmVnaW5QbGF5X18wPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjI1MS44OCwtMTM5MSAyMjUxLjg4LC0xNDU0LjI1IDI2ODAuMzgsLTE0NTQuMjUgMjY4MC4zOCwtMTM5MSAyMjUxLjg4LC0xMzkxIi8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSIyNDY2LjEyIiB5PSItMTQzNi45NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6UmVjZWl2ZUJlZ2luUGxheTowPC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjI1MS44OCwtMTQzMC41IDI2ODAuMzgsLTE0MzAuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyMjU5Ljg4IiB5PSItMTQxMy4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9WaXJ0dWFsRnVuY3Rpb24gRXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludDwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjI1OS44OCIgeT0iLTEzOTcuNDUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0ludENvbnN0IDEwPC90ZXh0Pg0KPC9nPg0KPCEtLSBSZWNlaXZlQmVnaW5QbGF5JiM0NTsmZ3Q7UmVjZWl2ZUJlZ2luUGxheV9fMCAtLT4NCjxnIGlkPSJlZGdlMjEiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5SZWNlaXZlQmVnaW5QbGF5JiM0NTsmZ3Q7UmVjZWl2ZUJlZ2luUGxheV9fMDwvdGl0bGU+DQo8cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBkPSJNMjQ2Ni4xMiwtMTU0OS4xNkMyNDY2LjEyLC0xNTI4LjcyIDI0NjYuMTIsLTE0OTMuOTEgMjQ2Ni4xMiwtMTQ2Ni4xMiIvPg0KPHBvbHlnb24gZmlsbD0iYmxhY2siIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjQ2OS42MywtMTQ2Ni4yMiAyNDY2LjEzLC0xNDU2LjIyIDI0NjIuNjMsLTE0NjYuMjIgMjQ2OS42MywtMTQ2Ni4yMiIvPg0KPC9nPg0KPCEtLSBSZWNlaXZlQmVnaW5QbGF5X18wJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTAgLS0+DQo8ZyBpZD0iZWRnZTIyIiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+UmVjZWl2ZUJlZ2luUGxheV9fMDplJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9PY2VhbkJsdWVwcmludF9fMTA8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZWQiIGQ9Ik0yNjgxLjM4LC0xNDIyLjYyQzI2OTYuMTcsLTE0MjIuNjIgMjY4MC4zMSwtMTQwMS41NyAyNjkwLjEyLC0xMzkwLjUgMjcxOS4zNSwtMTM1Ny41NSAyNzU2LjYsLTEzMzEuNDkgMjc5Ni4zMiwtMTMxMC45Ii8+DQo8cG9seWdvbiBmaWxsPSJub25lIiBzdHJva2U9InJlZCIgcG9pbnRzPSIyNzk3Ljc3LC0xMzE0LjEgMjgwNS4xMiwtMTMwNi40NyAyNzk0LjYxLC0xMzA3Ljg1IDI3OTcuNzcsLTEzMTQuMSIvPg0KPC9nPg0KPCEtLSBSZWNlaXZlQmVnaW5QbGF5X18xOSAtLT4NCjxnIGlkPSJub2RlMjYiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5SZWNlaXZlQmVnaW5QbGF5X18xOTwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjIyNjYuNSwtMTIwMi44OCAyMjY2LjUsLTEyNjYuMTIgMjU4Ny43NSwtMTI2Ni4xMiAyNTg3Ljc1LC0xMjAyLjg4IDIyNjYuNSwtMTIwMi44OCIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMjQyNy4xMiIgeT0iLTEyNDguODMiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPk9jZWFuQmx1ZXByaW50X0M6OlJlY2VpdmVCZWdpblBsYXk6MTk8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyMjY2LjUsLTEyNDIuMzggMjU4Ny43NSwtMTI0Mi4zOCIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyMjc0LjUiIHk9Ii0xMjI1LjA4IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9SZXR1cm48L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjIyNzQuNSIgeT0iLTEyMDkuMzMiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX05vdGhpbmc8L3RleHQ+DQo8L2c+DQo8IS0tIFJlY2VpdmVCZWdpblBsYXlfXzAmIzQ1OyZndDtSZWNlaXZlQmVnaW5QbGF5X18xOSAtLT4NCjxnIGlkPSJlZGdlMjMiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5SZWNlaXZlQmVnaW5QbGF5X18wJiM0NTsmZ3Q7UmVjZWl2ZUJlZ2luUGxheV9fMTk8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTI0NTkuNjgsLTEzOTAuODlDMjQ1My4yMSwtMTM2MCAyNDQzLjE5LC0xMzEyLjE1IDI0MzUuOTcsLTEyNzcuNzEiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjI0MzkuNDMsLTEyNzcuMTQgMjQzMy45NSwtMTI2OC4wNyAyNDMyLjU4LC0xMjc4LjU4IDI0MzkuNDMsLTEyNzcuMTQiLz4NCjwvZz4NCjwhLS0gUmVjZWl2ZUJlZ2luUGxheV9fMjEgLS0+DQo8ZyBpZD0ibm9kZTI3IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+UmVjZWl2ZUJlZ2luUGxheV9fMjE8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNTEyLjUsLTE0NzMuMjUgMjUxMi41LC0xNTIwLjc1IDI4MzMuNzUsLTE1MjAuNzUgMjgzMy43NSwtMTQ3My4yNSAyNTEyLjUsLTE0NzMuMjUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjI2NzMuMTIiIHk9Ii0xNTAzLjQ1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5PY2VhbkJsdWVwcmludF9DOjpSZWNlaXZlQmVnaW5QbGF5OjIxPC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjUxMi41LC0xNDk3IDI4MzMuNzUsLTE0OTciLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjUyMC41IiB5PSItMTQ3OS43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9FbmRPZlNjcmlwdDwvdGV4dD4NCjwvZz4NCjwhLS0gVXNlckNvbnN0cnVjdGlvblNjcmlwdCAtLT4NCjxnIGlkPSJub2RlMjgiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5Vc2VyQ29uc3RydWN0aW9uU2NyaXB0PC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNmZjg4ODgiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjc0NC4yNSwtMTU0OS4zOCAyNzQ0LjI1LC0xNTg1LjM4IDMwMTYsLTE1ODUuMzggMzAxNiwtMTU0OS4zOCAyNzQ0LjI1LC0xNTQ5LjM4Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI3NTIuMjUiIHk9Ii0xNTYyLjA4IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5GdW5jdGlvbiBVc2VyQ29uc3RydWN0aW9uU2NyaXB0PC90ZXh0Pg0KPC9nPg0KPCEtLSBVc2VyQ29uc3RydWN0aW9uU2NyaXB0X18wIC0tPg0KPGcgaWQ9Im5vZGUyOSIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPlVzZXJDb25zdHJ1Y3Rpb25TY3JpcHRfXzA8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNjk4Ljg4LC0xMzkxIDI2OTguODgsLTE0NTQuMjUgMzA2MS4zOCwtMTQ1NC4yNSAzMDYxLjM4LC0xMzkxIDI2OTguODgsLTEzOTEiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjI4ODAuMTIiIHk9Ii0xNDM2Ljk1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5PY2VhbkJsdWVwcmludF9DOjpVc2VyQ29uc3RydWN0aW9uU2NyaXB0OjA8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNjk4Ljg4LC0xNDMwLjUgMzA2MS4zOCwtMTQzMC41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI3MDYuODgiIHk9Ii0xNDEzLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX1JldHVybjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjcwNi44OCIgeT0iLTEzOTcuNDUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX05vdGhpbmc8L3RleHQ+DQo8L2c+DQo8IS0tIFVzZXJDb25zdHJ1Y3Rpb25TY3JpcHQmIzQ1OyZndDtVc2VyQ29uc3RydWN0aW9uU2NyaXB0X18wIC0tPg0KPGcgaWQ9ImVkZ2UyNCIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPlVzZXJDb25zdHJ1Y3Rpb25TY3JpcHQmIzQ1OyZndDtVc2VyQ29uc3RydWN0aW9uU2NyaXB0X18wPC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0yODgwLjEyLC0xNTQ5LjE2QzI4ODAuMTIsLTE1MjguNzIgMjg4MC4xMiwtMTQ5My45MSAyODgwLjEyLC0xNDY2LjEyIi8+DQo8cG9seWdvbiBmaWxsPSJibGFjayIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyODgzLjYzLC0xNDY2LjIyIDI4ODAuMTMsLTE0NTYuMjIgMjg3Ni42MywtMTQ2Ni4yMiAyODgzLjYzLC0xNDY2LjIyIi8+DQo8L2c+DQo8IS0tIFVzZXJDb25zdHJ1Y3Rpb25TY3JpcHRfXzIgLS0+DQo8ZyBpZD0ibm9kZTMwIiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+VXNlckNvbnN0cnVjdGlvblNjcmlwdF9fMjwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjMwODYuODgsLTg2OS41IDMwODYuODgsLTkxNyAzNDQ5LjM4LC05MTcgMzQ0OS4zOCwtODY5LjUgMzA4Ni44OCwtODY5LjUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjMyNjguMTIiIHk9Ii04OTkuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+T2NlYW5CbHVlcHJpbnRfQzo6VXNlckNvbnN0cnVjdGlvblNjcmlwdDoyPC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMzA4Ni44OCwtODkzLjI1IDM0NDkuMzgsLTg5My4yNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIzMDk0Ljg4IiB5PSItODc1Ljk1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9FbmRPZlNjcmlwdDwvdGV4dD4NCjwvZz4NCjwvZz4NCjwvc3ZnPg0K"), m => m.codePointAt(0)));
-      container.innerHTML = data.substring(data.indexOf("<svg"));
-      const map = container.children[0];
-      minimap.src = URL.createObjectURL(new Blob([data], {'type':'image/svg+xml'}));
+  <div id="empty-state">
+    <div class="empty-title">SVG Viewer</div>
+    <div class="empty-subtitle">Drop an SVG file here</div>
+    <div class="empty-divider">or</div>
+    <div class="empty-actions">
+      <button id="empty-file-btn">Choose File</button>
+      <select class="examples-select">
+        <option value="">Load Example...</option>
+      </select>
+    </div>
+  </div>
 
-      function setScale(s) {
-        map.style.scale = s;
-        map.style.transformOrigin = '0 0';
-        const bounds = map.getBoundingClientRect();
-        container.style.width = bounds.width + 'px';
-        container.style.height = bounds.height + 'px';
-        update();
-      }
+  <div id="viewport" style="display: none;">
+    <div id="svg-wrapper">
+      <div id="svg-container"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 14.1.1 (20251213.1925)
+ -->
+<!-- Pages: 1 -->
+<svg width="3651pt" height="831pt"
+ viewBox="0.00 0.00 3651.00 831.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 826.5)">
+<polygon fill="white" stroke="none" points="-4,4 -4,-826.5 3646.88,-826.5 3646.88,4 -4,4"/>
+<!-- OceanBlueprint_C -->
+<g id="node1" class="node">
+<title>OceanBlueprint_C</title>
+<polygon fill="#d4ffd4" stroke="none" points="8,-742 8,-818 566.75,-818 566.75,-742 8,-742"/>
+<polygon fill="none" stroke="black" points="8,-742 8,-818 566.75,-818 566.75,-742 8,-742"/>
+<text xml:space="preserve" text-anchor="start" x="11" y="-802.7" font-family="monospace" font-size="14.00" fill="#800080">ClassExport:</text>
+<text xml:space="preserve" text-anchor="start" x="110" y="-802.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="118.25" y="-802.7" font-family="monospace" font-size="14.00" fill="#996300">OceanBlueprint_C</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-788.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-788.7" font-family="monospace" font-size="14.00" fill="#800080">SuperStruct:</text>
+<text xml:space="preserve" text-anchor="start" x="126.5" y="-788.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="151.25" y="-788.7" font-family="monospace" font-size="14.00" fill="#996300">import /Script/TresGame&#45;&gt;TresOceanShaderController</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-774.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-774.7" font-family="monospace" font-size="14.00" fill="#800080">Properties:</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-760.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="44" y="-760.7" font-family="monospace" font-size="14.00" fill="#996300">Struct</text>
+<text xml:space="preserve" text-anchor="start" x="93.5" y="-760.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="134.75" y="-760.7" font-family="monospace" font-size="14.00" fill="#006400">UberGraphFrame</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-746.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="60.5" y="-746.7" font-family="monospace" font-size="14.00" fill="#800080">CPF_Transient|CPF_DuplicateTransient</text>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint -->
+<g id="node2" class="node">
+<title>ExecuteUbergraph_OceanBlueprint</title>
+<polygon fill="#ffd4d4" stroke="none" points="591.5,-770.5 591.5,-818.5 1051.25,-818.5 1051.25,-770.5 591.5,-770.5"/>
+<polygon fill="none" stroke="black" points="591.5,-770.5 591.5,-818.5 1051.25,-818.5 1051.25,-770.5 591.5,-770.5"/>
+<text xml:space="preserve" text-anchor="start" x="594.5" y="-803.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="660.5" y="-803.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="668.75" y="-803.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_OceanBlueprint</text>
+<text xml:space="preserve" text-anchor="start" x="594.5" y="-789.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="611" y="-789.2" font-family="monospace" font-size="14.00" fill="#996300">Int</text>
+<text xml:space="preserve" text-anchor="start" x="635.75" y="-789.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="660.5" y="-789.2" font-family="monospace" font-size="14.00" fill="#006400">EntryPoint</text>
+<text xml:space="preserve" text-anchor="start" x="594.5" y="-775.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="627.5" y="-775.2" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_0 -->
+<g id="node3" class="node">
+<title>ExecuteUbergraph_OceanBlueprint__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="599.75,-670 599.75,-726.5 1043,-726.5 1043,-670 599.75,-670"/>
+<polygon fill="none" stroke="black" points="599.75,-704 599.75,-726.5 1043,-726.5 1043,-704 599.75,-704"/>
+<text xml:space="preserve" text-anchor="start" x="602.75" y="-710.2" font-family="monospace" font-size="14.00">OceanBlueprint_C::ExecuteUbergraph_OceanBlueprint @ 0</text>
+<polygon fill="none" stroke="black" points="599.75,-670 599.75,-704 1043,-704 1043,-670 599.75,-670"/>
+<text xml:space="preserve" text-anchor="start" x="602.75" y="-688.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="627.5" y="-688.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ComputedJump</text>
+<text xml:space="preserve" text-anchor="start" x="602.75" y="-674.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1: </text>
+<text xml:space="preserve" text-anchor="start" x="627.5" y="-674.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="644" y="-674.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="776" y="-674.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="784.25" y="-674.7" font-family="monospace" font-size="14.00" fill="#006400">EntryPoint</text>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_0 -->
+<g id="edge1" class="edge">
+<title>ExecuteUbergraph_OceanBlueprint&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_0:n</title>
+<path fill="none" stroke="black" d="M821.38,-766.52C821.38,-758.86 821.38,-750.29 821.38,-741.84"/>
+<polygon fill="black" stroke="black" points="824.88,-742.01 821.38,-732.01 817.88,-742.01 824.88,-742.01"/>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_409 -->
+<g id="node4" class="node">
+<title>ExecuteUbergraph_OceanBlueprint__block_409</title>
+<polygon fill="#eeeeee" stroke="none" points="2395.5,-4 2395.5,-60.5 2855.25,-60.5 2855.25,-4 2395.5,-4"/>
+<polygon fill="none" stroke="black" points="2395.5,-38 2395.5,-60.5 2855.25,-60.5 2855.25,-38 2395.5,-38"/>
+<text xml:space="preserve" text-anchor="start" x="2398.5" y="-44.2" font-family="monospace" font-size="14.00">OceanBlueprint_C::ExecuteUbergraph_OceanBlueprint @ 409</text>
+<polygon fill="none" stroke="black" points="2395.5,-4 2395.5,-38 2855.25,-38 2855.25,-4 2395.5,-4"/>
+<text xml:space="preserve" text-anchor="start" x="2398.5" y="-22.7" font-family="monospace" font-size="14.00" fill="#555555">409: </text>
+<text xml:space="preserve" text-anchor="start" x="2439.75" y="-22.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="2398.5" y="-8.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">410: </text>
+<text xml:space="preserve" text-anchor="start" x="2439.75" y="-8.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2456.25" y="-8.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_132 -->
+<g id="node5" class="node">
+<title>ExecuteUbergraph_OceanBlueprint__block_132</title>
+<polygon fill="#eeeeee" stroke="none" points="2454,-104.5 2454,-273 3210.75,-273 3210.75,-104.5 2454,-104.5"/>
+<polygon fill="none" stroke="black" points="2454,-250.5 2454,-273 3210.75,-273 3210.75,-250.5 2454,-250.5"/>
+<text xml:space="preserve" text-anchor="start" x="2605.5" y="-256.7" font-family="monospace" font-size="14.00">OceanBlueprint_C::ExecuteUbergraph_OceanBlueprint @ 132</text>
+<polygon fill="none" stroke="black" points="2454,-104.5 2454,-250.5 3210.75,-250.5 3210.75,-104.5 2454,-104.5"/>
+<text xml:space="preserve" text-anchor="start" x="2457" y="-235.2" font-family="monospace" font-size="14.00" fill="#555555">132: </text>
+<text xml:space="preserve" text-anchor="start" x="2498.25" y="-235.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetObj</text>
+<text xml:space="preserve" text-anchor="start" x="2457" y="-221.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">133: </text>
+<text xml:space="preserve" text-anchor="start" x="2498.25" y="-221.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2514.75" y="-221.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2646.75" y="-221.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2655" y="-221.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetSceneManager_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="2457" y="-207.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">142: </text>
+<text xml:space="preserve" text-anchor="start" x="2498.25" y="-207.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2514.75" y="-207.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="2457" y="-193.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">143: </text>
+<text xml:space="preserve" text-anchor="start" x="2498.25" y="-193.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2531.25" y="-193.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2663.25" y="-193.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2671.5" y="-193.2" font-family="monospace" font-size="14.00" fill="#006400">K2Node_DynamicCast_AsTres_Game_State2</text>
+<text xml:space="preserve" text-anchor="start" x="2457" y="-179.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">164: </text>
+<text xml:space="preserve" text-anchor="start" x="2498.25" y="-179.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2531.25" y="-179.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2663.25" y="-179.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2671.5" y="-179.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGameState&#45;&gt;GetSceneManager</text>
+<text xml:space="preserve" text-anchor="start" x="2457" y="-165.2" font-family="monospace" font-size="14.00" fill="#555555">174: </text>
+<text xml:space="preserve" text-anchor="start" x="2498.25" y="-165.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="2457" y="-151.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">175: </text>
+<text xml:space="preserve" text-anchor="start" x="2498.25" y="-151.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2514.75" y="-151.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2646.75" y="-151.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2655" y="-151.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetSceneManager_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="2457" y="-137.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">196: </text>
+<text xml:space="preserve" text-anchor="start" x="2498.25" y="-137.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2514.75" y="-137.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2646.75" y="-137.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2655" y="-137.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresSceneManager&#45;&gt;SetOceanShaderController</text>
+<text xml:space="preserve" text-anchor="start" x="2457" y="-123.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">205: </text>
+<text xml:space="preserve" text-anchor="start" x="2498.25" y="-123.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2531.25" y="-123.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="2457" y="-109.2" font-family="monospace" font-size="14.00" fill="#555555">207: </text>
+<text xml:space="preserve" text-anchor="start" x="2498.25" y="-109.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="2556" y="-109.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2564.25" y="-109.2" font-family="monospace" font-size="14.00" fill="#555555">409</text>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_132&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_409 -->
+<g id="edge2" class="edge">
+<title>ExecuteUbergraph_OceanBlueprint__block_132&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_409:n</title>
+<path fill="none" stroke="black" d="M2634.27,-100.54C2630.25,-92.94 2627.45,-84.69 2626.17,-75.75"/>
+<polygon fill="black" stroke="black" points="2629.67,-75.74 2625.48,-66.01 2622.69,-76.23 2629.67,-75.74"/>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_334 -->
+<g id="node6" class="node">
+<title>ExecuteUbergraph_OceanBlueprint__block_334</title>
+<polygon fill="#eeeeee" stroke="none" points="1626,-111.5 1626,-266 2382.75,-266 2382.75,-111.5 1626,-111.5"/>
+<polygon fill="none" stroke="black" points="1626,-243.5 1626,-266 2382.75,-266 2382.75,-243.5 1626,-243.5"/>
+<text xml:space="preserve" text-anchor="start" x="1777.5" y="-249.7" font-family="monospace" font-size="14.00">OceanBlueprint_C::ExecuteUbergraph_OceanBlueprint @ 334</text>
+<polygon fill="none" stroke="black" points="1626,-111.5 1626,-243.5 2382.75,-243.5 2382.75,-111.5 1626,-111.5"/>
+<text xml:space="preserve" text-anchor="start" x="1629" y="-228.2" font-family="monospace" font-size="14.00" fill="#555555">334: </text>
+<text xml:space="preserve" text-anchor="start" x="1670.25" y="-228.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetObj</text>
+<text xml:space="preserve" text-anchor="start" x="1629" y="-214.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">335: </text>
+<text xml:space="preserve" text-anchor="start" x="1670.25" y="-214.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1686.75" y="-214.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1818.75" y="-214.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1827" y="-214.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetSceneManager_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1629" y="-200.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">344: </text>
+<text xml:space="preserve" text-anchor="start" x="1670.25" y="-200.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1686.75" y="-200.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="1629" y="-186.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">345: </text>
+<text xml:space="preserve" text-anchor="start" x="1670.25" y="-186.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1703.25" y="-186.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1835.25" y="-186.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1843.5" y="-186.2" font-family="monospace" font-size="14.00" fill="#006400">K2Node_DynamicCast_AsTres_Game_State</text>
+<text xml:space="preserve" text-anchor="start" x="1629" y="-172.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">366: </text>
+<text xml:space="preserve" text-anchor="start" x="1670.25" y="-172.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1703.25" y="-172.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1835.25" y="-172.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1843.5" y="-172.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGameState&#45;&gt;GetSceneManager</text>
+<text xml:space="preserve" text-anchor="start" x="1629" y="-158.2" font-family="monospace" font-size="14.00" fill="#555555">376: </text>
+<text xml:space="preserve" text-anchor="start" x="1670.25" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="1629" y="-144.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">377: </text>
+<text xml:space="preserve" text-anchor="start" x="1670.25" y="-144.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1686.75" y="-144.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1818.75" y="-144.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1827" y="-144.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetSceneManager_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1629" y="-130.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">398: </text>
+<text xml:space="preserve" text-anchor="start" x="1670.25" y="-130.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1686.75" y="-130.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1818.75" y="-130.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1827" y="-130.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresSceneManager&#45;&gt;SetOceanShaderController</text>
+<text xml:space="preserve" text-anchor="start" x="1629" y="-116.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">407: </text>
+<text xml:space="preserve" text-anchor="start" x="1670.25" y="-116.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1703.25" y="-116.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_NoObject</text>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_334&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_409 -->
+<g id="edge3" class="edge">
+<title>ExecuteUbergraph_OceanBlueprint__block_334&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_409:n</title>
+<path fill="none" stroke="black" d="M2368.28,-107.51C2380.45,-105.1 2392.51,-102.76 2404.38,-100.5 2449.25,-91.96 2597.97,-110.69 2622.06,-75.33"/>
+<polygon fill="black" stroke="black" points="2625.36,-76.53 2624.93,-65.95 2618.66,-74.49 2625.36,-76.53"/>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_212 -->
+<g id="node7" class="node">
+<title>ExecuteUbergraph_OceanBlueprint__block_212</title>
+<polygon fill="#eeeeee" stroke="none" points="1720.62,-317 1720.62,-569.5 2370.12,-569.5 2370.12,-317 1720.62,-317"/>
+<polygon fill="none" stroke="black" points="1720.62,-547 1720.62,-569.5 2370.12,-569.5 2370.12,-547 1720.62,-547"/>
+<text xml:space="preserve" text-anchor="start" x="1818.5" y="-553.2" font-family="monospace" font-size="14.00">OceanBlueprint_C::ExecuteUbergraph_OceanBlueprint @ 212</text>
+<polygon fill="none" stroke="black" points="1720.62,-317 1720.62,-547 2370.12,-547 2370.12,-317 1720.62,-317"/>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-531.7" font-family="monospace" font-size="14.00" fill="#555555">212: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-531.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetObj</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-517.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">213: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-517.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1781.38" y="-517.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1913.38" y="-517.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1921.62" y="-517.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetGameState_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-503.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">222: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-503.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1781.38" y="-503.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-489.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">223: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-489.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1797.88" y="-489.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="1913.38" y="-489.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1921.62" y="-489.7" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__GameplayStatics</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-475.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">244: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-475.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1797.88" y="-475.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1929.88" y="-475.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1938.12" y="-475.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;GameplayStatics&#45;&gt;GetGameState</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-461.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">253: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-461.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1814.38" y="-461.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-447.7" font-family="monospace" font-size="14.00" fill="#555555">255: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-447.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-433.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">264: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-433.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1781.38" y="-433.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1913.38" y="-433.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1921.62" y="-433.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_DynamicCast_AsTres_Game_State</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-419.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">273: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-419.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1781.38" y="-419.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_DynamicCast</text>
+<text xml:space="preserve" text-anchor="start" x="1896.88" y="-419.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1905.12" y="-419.7" font-family="monospace" font-size="14.00" fill="#996300">import /Script/TresGame&#45;&gt;TresGameState</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-405.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">282: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-405.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1797.88" y="-405.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1929.88" y="-405.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1938.12" y="-405.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetGameState_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-391.7" font-family="monospace" font-size="14.00" fill="#555555">291: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-391.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-377.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">300: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-377.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1781.38" y="-377.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1913.38" y="-377.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1921.62" y="-377.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_DynamicCast_bSuccess</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-363.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">309: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-363.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1781.38" y="-363.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PrimitiveCast</text>
+<text xml:space="preserve" text-anchor="start" x="1913.38" y="-363.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1921.62" y="-363.7" font-family="monospace" font-size="14.00" fill="#996300">ObjectToBool</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-349.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">311: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-349.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1797.88" y="-349.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1929.88" y="-349.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1938.12" y="-349.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_DynamicCast_AsTres_Game_State</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-335.7" font-family="monospace" font-size="14.00" fill="#555555">320: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-335.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="1863.88" y="-335.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1872.12" y="-335.7" font-family="monospace" font-size="14.00" fill="#555555">409</text>
+<text xml:space="preserve" text-anchor="start" x="1723.62" y="-321.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">325: </text>
+<text xml:space="preserve" text-anchor="start" x="1764.88" y="-321.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1781.38" y="-321.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1913.38" y="-321.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1921.62" y="-321.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_DynamicCast_bSuccess</text>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_212&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_409 -->
+<g id="edge4" class="edge">
+<title>ExecuteUbergraph_OceanBlueprint__block_212:e&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_409:n</title>
+<path fill="none" stroke="red" d="M2378.81,-443.25C2533.35,-443.25 2329.19,-210.86 2437.38,-100.5 2494.02,-42.71 2613,-139.26 2624.48,-75.61"/>
+<polygon fill="none" stroke="red" points="2627.94,-76.26 2625.25,-66.01 2620.96,-75.7 2627.94,-76.26"/>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_212&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_334 -->
+<g id="edge5" class="edge">
+<title>ExecuteUbergraph_OceanBlueprint__block_212&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_334:n</title>
+<path fill="none" stroke="green" d="M2007.73,-313C2006.21,-302.77 2005.13,-292.46 2004.65,-282.32"/>
+<polygon fill="green" stroke="green" points="2008.15,-282.36 2004.41,-272.45 2001.15,-282.53 2008.15,-282.36"/>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_10 -->
+<g id="node8" class="node">
+<title>ExecuteUbergraph_OceanBlueprint__block_10</title>
+<polygon fill="#eeeeee" stroke="none" points="2554.75,-317 2554.75,-569.5 3196,-569.5 3196,-317 2554.75,-317"/>
+<polygon fill="none" stroke="black" points="2554.75,-547 2554.75,-569.5 3196,-569.5 3196,-547 2554.75,-547"/>
+<text xml:space="preserve" text-anchor="start" x="2652.62" y="-553.2" font-family="monospace" font-size="14.00">OceanBlueprint_C::ExecuteUbergraph_OceanBlueprint @ 10</text>
+<polygon fill="none" stroke="black" points="2554.75,-317 2554.75,-547 3196,-547 3196,-317 2554.75,-317"/>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-531.7" font-family="monospace" font-size="14.00" fill="#555555">10: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-531.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetObj</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-517.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">11: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-517.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2607.25" y="-517.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2739.25" y="-517.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2747.5" y="-517.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetGameState_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-503.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-503.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2607.25" y="-503.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-489.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">21: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-489.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2623.75" y="-489.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="2739.25" y="-489.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2747.5" y="-489.7" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__GameplayStatics</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-475.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">42: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-475.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2623.75" y="-475.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2755.75" y="-475.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2764" y="-475.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;GameplayStatics&#45;&gt;GetGameState</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-461.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">51: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-461.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2640.25" y="-461.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-447.7" font-family="monospace" font-size="14.00" fill="#555555">53: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-447.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-433.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">62: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-433.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2607.25" y="-433.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2739.25" y="-433.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2747.5" y="-433.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_DynamicCast_AsTres_Game_State2</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-419.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">71: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-419.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2607.25" y="-419.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_DynamicCast</text>
+<text xml:space="preserve" text-anchor="start" x="2722.75" y="-419.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2731" y="-419.7" font-family="monospace" font-size="14.00" fill="#996300">import /Script/TresGame&#45;&gt;TresGameState</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-405.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">80: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-405.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2623.75" y="-405.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2755.75" y="-405.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2764" y="-405.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetGameState_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-391.7" font-family="monospace" font-size="14.00" fill="#555555">89: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-391.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-377.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">98: </text>
+<text xml:space="preserve" text-anchor="start" x="2590.75" y="-377.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2607.25" y="-377.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2739.25" y="-377.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2747.5" y="-377.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_DynamicCast_bSuccess2</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-363.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">107: </text>
+<text xml:space="preserve" text-anchor="start" x="2599" y="-363.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2615.5" y="-363.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PrimitiveCast</text>
+<text xml:space="preserve" text-anchor="start" x="2747.5" y="-363.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2755.75" y="-363.7" font-family="monospace" font-size="14.00" fill="#996300">ObjectToBool</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-349.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">109: </text>
+<text xml:space="preserve" text-anchor="start" x="2599" y="-349.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2632" y="-349.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2764" y="-349.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2772.25" y="-349.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_DynamicCast_AsTres_Game_State2</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-335.7" font-family="monospace" font-size="14.00" fill="#555555">118: </text>
+<text xml:space="preserve" text-anchor="start" x="2599" y="-335.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="2698" y="-335.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2706.25" y="-335.7" font-family="monospace" font-size="14.00" fill="#555555">409</text>
+<text xml:space="preserve" text-anchor="start" x="2557.75" y="-321.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">123: </text>
+<text xml:space="preserve" text-anchor="start" x="2599" y="-321.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2615.5" y="-321.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2747.5" y="-321.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2755.75" y="-321.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_DynamicCast_bSuccess2</text>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_10&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_409 -->
+<g id="edge6" class="edge">
+<title>ExecuteUbergraph_OceanBlueprint__block_10:e&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_409:n</title>
+<path fill="none" stroke="red" d="M3204.69,-443.25C3250.04,-443.25 3232.11,-105.52 3227.38,-100.5 3184.03,-54.49 2686.73,-122.88 2630.53,-74.52"/>
+<polygon fill="none" stroke="red" points="2633.76,-73.14 2626.07,-65.85 2627.53,-76.34 2633.76,-73.14"/>
+</g>
+<!-- ExecuteUbergraph_OceanBlueprint__block_10&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_132 -->
+<g id="edge7" class="edge">
+<title>ExecuteUbergraph_OceanBlueprint__block_10&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_132:n</title>
+<path fill="none" stroke="green" d="M2835.2,-313.17C2833.99,-304.93 2833.12,-296.66 2832.69,-288.48"/>
+<polygon fill="green" stroke="green" points="2836.19,-288.41 2832.42,-278.51 2829.19,-288.6 2836.19,-288.41"/>
+</g>
+<!-- ReceiveEndPlay -->
+<g id="node9" class="node">
+<title>ReceiveEndPlay</title>
+<polygon fill="#ffd4d4" stroke="none" points="1326.5,-770 1326.5,-818 1786.25,-818 1786.25,-770 1326.5,-770"/>
+<polygon fill="none" stroke="black" points="1326.5,-770 1326.5,-818 1786.25,-818 1786.25,-770 1326.5,-770"/>
+<text xml:space="preserve" text-anchor="start" x="1329.5" y="-802.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="1395.5" y="-802.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1403.75" y="-802.7" font-family="monospace" font-size="14.00" fill="#6a0080">ReceiveEndPlay</text>
+<text xml:space="preserve" text-anchor="start" x="1329.5" y="-788.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1346" y="-788.7" font-family="monospace" font-size="14.00" fill="#996300">Byte</text>
+<text xml:space="preserve" text-anchor="start" x="1379" y="-788.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="1403.75" y="-788.7" font-family="monospace" font-size="14.00" fill="#006400">EndPlayReason</text>
+<text xml:space="preserve" text-anchor="start" x="1329.5" y="-774.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1362.5" y="-774.7" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- ReceiveEndPlay__block_0 -->
+<g id="node10" class="node">
+<title>ReceiveEndPlay__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="1074.88,-613.5 1074.88,-726 2037.88,-726 2037.88,-613.5 1074.88,-613.5"/>
+<polygon fill="none" stroke="black" points="1074.88,-703.5 1074.88,-726 2037.88,-726 2037.88,-703.5 1074.88,-703.5"/>
+<text xml:space="preserve" text-anchor="start" x="1407.88" y="-709.7" font-family="monospace" font-size="14.00">OceanBlueprint_C::ReceiveEndPlay @ 0</text>
+<polygon fill="none" stroke="black" points="1074.88,-613.5 1074.88,-703.5 2037.88,-703.5 2037.88,-613.5 1074.88,-613.5"/>
+<text xml:space="preserve" text-anchor="start" x="1077.88" y="-688.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="1102.62" y="-688.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetValueOnPersistentFrame</text>
+<text xml:space="preserve" text-anchor="start" x="1333.62" y="-688.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1341.88" y="-688.2" font-family="monospace" font-size="14.00" fill="#006400">export OceanBlueprint_C&#45;&gt;ExecuteUbergraph_OceanBlueprint&#45;&gt;K2Node_Event_EndPlayReason</text>
+<text xml:space="preserve" text-anchor="start" x="1077.88" y="-674.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">9: </text>
+<text xml:space="preserve" text-anchor="start" x="1102.62" y="-674.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1119.12" y="-674.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1251.12" y="-674.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1259.38" y="-674.2" font-family="monospace" font-size="14.00" fill="#006400">EndPlayReason</text>
+<text xml:space="preserve" text-anchor="start" x="1077.88" y="-660.2" font-family="monospace" font-size="14.00" fill="#555555">18: </text>
+<text xml:space="preserve" text-anchor="start" x="1110.88" y="-660.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1259.38" y="-660.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1267.62" y="-660.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_OceanBlueprint</text>
+<text xml:space="preserve" text-anchor="start" x="1077.88" y="-646.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">31: </text>
+<text xml:space="preserve" text-anchor="start" x="1110.88" y="-646.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1127.38" y="-646.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1218.12" y="-646.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1226.38" y="-646.2" font-family="monospace" font-size="14.00" fill="#0000cd">212</text>
+<text xml:space="preserve" text-anchor="start" x="1077.88" y="-632.2" font-family="monospace" font-size="14.00" fill="#555555">37: </text>
+<text xml:space="preserve" text-anchor="start" x="1110.88" y="-632.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="1077.88" y="-618.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">38: </text>
+<text xml:space="preserve" text-anchor="start" x="1110.88" y="-618.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1127.38" y="-618.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ReceiveEndPlay&#45;&gt;ReceiveEndPlay__block_0 -->
+<g id="edge8" class="edge">
+<title>ReceiveEndPlay&#45;&gt;ReceiveEndPlay__block_0:n</title>
+<path fill="none" stroke="black" d="M1556.38,-766.02C1556.38,-758.36 1556.38,-749.79 1556.38,-741.34"/>
+<polygon fill="black" stroke="black" points="1559.88,-741.51 1556.38,-731.51 1552.88,-741.51 1559.88,-741.51"/>
+</g>
+<!-- ReceiveEndPlay__block_0&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_212 -->
+<g id="edge9" class="edge">
+<title>ReceiveEndPlay__block_0:e&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_212:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M2046.73,-669.75C2085.5,-669.75 2052.89,-625.84 2046.43,-585.76"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="2045.58,-575.93 2050.93,-585.5 2046.3,-578.44 2046.94,-585.85 2046.44,-585.89 2045.94,-585.93 2045.31,-578.52 2041.96,-586.28 2045.58,-575.93"/>
+</g>
+<!-- ReceiveBeginPlay -->
+<g id="node11" class="node">
+<title>ReceiveBeginPlay</title>
+<polygon fill="#ffd4d4" stroke="none" points="2540.25,-782.75 2540.25,-805.25 2752.5,-805.25 2752.5,-782.75 2540.25,-782.75"/>
+<polygon fill="none" stroke="black" points="2540.25,-782.75 2540.25,-805.25 2752.5,-805.25 2752.5,-782.75 2540.25,-782.75"/>
+<text xml:space="preserve" text-anchor="start" x="2543.25" y="-789.95" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="2609.25" y="-789.95" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2617.5" y="-789.95" font-family="monospace" font-size="14.00" fill="#6a0080">ReceiveBeginPlay</text>
+</g>
+<!-- ReceiveBeginPlay__block_0 -->
+<g id="node12" class="node">
+<title>ReceiveBeginPlay__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="2424.75,-627.5 2424.75,-712 2868,-712 2868,-627.5 2424.75,-627.5"/>
+<polygon fill="none" stroke="black" points="2424.75,-689.5 2424.75,-712 2868,-712 2868,-689.5 2424.75,-689.5"/>
+<text xml:space="preserve" text-anchor="start" x="2489.62" y="-695.7" font-family="monospace" font-size="14.00">OceanBlueprint_C::ReceiveBeginPlay @ 0</text>
+<polygon fill="none" stroke="black" points="2424.75,-627.5 2424.75,-689.5 2868,-689.5 2868,-627.5 2424.75,-627.5"/>
+<text xml:space="preserve" text-anchor="start" x="2427.75" y="-674.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="2452.5" y="-674.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2601" y="-674.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2609.25" y="-674.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_OceanBlueprint</text>
+<text xml:space="preserve" text-anchor="start" x="2427.75" y="-660.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="2460.75" y="-660.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2477.25" y="-660.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="2568" y="-660.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2576.25" y="-660.2" font-family="monospace" font-size="14.00" fill="#0000cd">10</text>
+<text xml:space="preserve" text-anchor="start" x="2427.75" y="-646.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="2460.75" y="-646.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="2427.75" y="-632.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="2460.75" y="-632.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2477.25" y="-632.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ReceiveBeginPlay&#45;&gt;ReceiveBeginPlay__block_0 -->
+<g id="edge10" class="edge">
+<title>ReceiveBeginPlay&#45;&gt;ReceiveBeginPlay__block_0:n</title>
+<path fill="none" stroke="black" d="M2646.38,-776.08C2646.38,-763.43 2646.38,-745.42 2646.38,-728.12"/>
+<polygon fill="black" stroke="black" points="2649.88,-728.44 2646.38,-718.44 2642.88,-728.44 2649.88,-728.44"/>
+</g>
+<!-- ReceiveBeginPlay__block_0&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_10 -->
+<g id="edge11" class="edge">
+<title>ReceiveBeginPlay__block_0:e&#45;&gt;ExecuteUbergraph_OceanBlueprint__block_10:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M2876.78,-669.75C2915.55,-669.75 2882.9,-625.84 2876.43,-585.76"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="2875.58,-575.93 2880.93,-585.5 2876.3,-578.44 2876.94,-585.85 2876.44,-585.89 2875.95,-585.93 2875.31,-578.52 2871.96,-586.28 2875.58,-575.93"/>
+</g>
+<!-- UserConstructionScript -->
+<g id="node13" class="node">
+<title>UserConstructionScript</title>
+<polygon fill="#ffd4d4" stroke="none" points="3319.5,-793.25 3319.5,-815.75 3581.25,-815.75 3581.25,-793.25 3319.5,-793.25"/>
+<polygon fill="none" stroke="black" points="3319.5,-793.25 3319.5,-815.75 3581.25,-815.75 3581.25,-793.25 3319.5,-793.25"/>
+<text xml:space="preserve" text-anchor="start" x="3322.5" y="-800.45" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="3388.5" y="-800.45" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3396.75" y="-800.45" font-family="monospace" font-size="14.00" fill="#6a0080">UserConstructionScript</text>
+</g>
+<!-- UserConstructionScript__block_0 -->
+<g id="node14" class="node">
+<title>UserConstructionScript__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="3265.88,-690 3265.88,-746.5 3634.88,-746.5 3634.88,-690 3265.88,-690"/>
+<polygon fill="none" stroke="black" points="3265.88,-724 3265.88,-746.5 3634.88,-746.5 3634.88,-724 3265.88,-724"/>
+<text xml:space="preserve" text-anchor="start" x="3268.88" y="-730.2" font-family="monospace" font-size="14.00">OceanBlueprint_C::UserConstructionScript @ 0</text>
+<polygon fill="none" stroke="black" points="3265.88,-690 3265.88,-724 3634.88,-724 3634.88,-690 3265.88,-690"/>
+<text xml:space="preserve" text-anchor="start" x="3268.88" y="-708.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="3293.62" y="-708.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="3268.88" y="-694.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1: </text>
+<text xml:space="preserve" text-anchor="start" x="3293.62" y="-694.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3310.12" y="-694.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- UserConstructionScript&#45;&gt;UserConstructionScript__block_0 -->
+<g id="edge12" class="edge">
+<title>UserConstructionScript&#45;&gt;UserConstructionScript__block_0:n</title>
+<path fill="none" stroke="black" d="M3450.38,-786.79C3450.38,-779.54 3450.38,-770.7 3450.38,-761.9"/>
+<polygon fill="black" stroke="black" points="3453.88,-762.01 3450.38,-752.01 3446.88,-762.01 3453.88,-762.01"/>
+</g>
+</g>
+</svg>
+</div>
+    </div>
+  </div>
 
-      function zoom(amount, pointX, pointY) {
-        const currentScale = +map.style.scale;
-        const newScale = currentScale * amount;
+  <div id="minimap">
+    <div id="minimap-content">
+      <canvas id="minimap-canvas"></canvas>
+      <div id="minimap-viewport"></div>
+    </div>
+  </div>
 
-        const currentScrollX = window.scrollX;
-        const currentScrollY = window.scrollY;
+  <div id="hint">
+    <kbd>Wheel</kbd> zoom &nbsp;
+    <kbd>Drag</kbd> pan
+  </div>
 
-        map.style.scale = newScale;
-        const bounds = map.getBoundingClientRect();
-        container.style.width = bounds.width + 'px';
-        container.style.height = bounds.height + 'px';
+  <div id="drop-overlay">Drop SVG file here</div>
 
-        window.scrollTo(pointX * amount - (pointX - currentScrollX), pointY * amount - (pointY - currentScrollY));
-        update();
-      }
-      function scroll(dx, dy) {
-        window.scrollBy(dx, dy);
-        update();
-      }
-      function handleMove(e) {
-        if (!drag) return;
-        if (drag === minimapContainer) {
-          const bounds = minimap.getBoundingClientRect();
+  <script>
+    const fileInput = document.getElementById('file-input');
+    const viewport = document.getElementById('viewport');
+    const svgWrapper = document.getElementById('svg-wrapper');
+    const svgContainer = document.getElementById('svg-container');
+    const zoomLevelEl = document.getElementById('zoom-level');
+    const searchInput = document.getElementById('search-input');
+    const searchInfo = document.getElementById('search-info');
+    const emptyState = document.getElementById('empty-state');
+    const dropOverlay = document.getElementById('drop-overlay');
+    const darkModeToggle = document.getElementById('dark-mode-toggle');
+    const minimapToggle = document.getElementById('minimap-toggle');
+    const minimap = document.getElementById('minimap');
+    const minimapContent = document.getElementById('minimap-content');
+    const minimapCanvas = document.getElementById('minimap-canvas');
+    const minimapViewport = document.getElementById('minimap-viewport');
 
-          scroll(
-            document.documentElement.scrollWidth * e.movementX / bounds.width,
-            document.documentElement.scrollHeight * e.movementY / bounds.height
-          );
-        } else {
-          scroll(-e.movementX, -e.movementY);
+    let scale = 1;
+    let darkMode = false;
+    let minimapVisible = true;
+    let svgElement = null;
+    let svgWidth = 0;
+    let svgHeight = 0;
+    let minimapImageData = null; // Cached rasterized SVG
+
+    // Panning state
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let scrollStartX = 0;
+    let scrollStartY = 0;
+
+    // Minimap drag state
+    let isMinimapDragging = false;
+    let minimapDragOffsetX = 0;
+    let minimapDragOffsetY = 0;
+
+    // Search state
+    let searchMatches = [];
+    let currentMatchIndex = -1;
+    let highlightGroup = null;
+    let searchDebounceTimer = null;
+
+    const MIN_SCALE = 0.1;
+    const MAX_SCALE = 5;
+
+    // === File Loading ===
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) loadSvgFile(file);
+    });
+
+    // Examples dropdowns (toolbar and empty state)
+    const exampleFiles = [
+      'vm_flow.svg',
+      'PLS_Base.svg',
+      'dominion.svg',
+      'blueprint.svg'
+    ];
+
+    document.querySelectorAll('.examples-select').forEach(select => {
+      // Populate options
+      exampleFiles.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file;
+        option.textContent = file;
+        select.appendChild(option);
+      });
+
+      // Handle selection
+      select.addEventListener('change', async (e) => {
+        const file = e.target.value;
+        if (!file) return;
+
+        try {
+          const response = await fetch(`examples/${file}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${file}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
         }
-        e.preventDefault();
+
+        // Reset dropdown to placeholder
+        select.value = '';
+      });
+    });
+
+    // Empty state file button
+    document.getElementById('empty-file-btn').addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    // Drag and drop
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.add('active');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      if (e.target === dropOverlay) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.remove('active');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.svg')) {
+        loadSvgFile(file);
+      }
+    });
+
+    function loadSvgFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const svgText = e.target.result;
+        loadSvgContent(svgText);
+        document.title = `SVG Viewer - ${file.name}`;
+      };
+      reader.readAsText(file);
+    }
+
+    function loadSvgContent(svgText) {
+      // Clear previous content
+      svgContainer.innerHTML = svgText;
+      svgElement = svgContainer.querySelector('svg');
+
+      if (!svgElement) {
+        alert('Invalid SVG file');
+        return;
       }
 
-      let debounceTimeout = null;
-      function update() {
-        minimapView.style.top = document.documentElement.scrollTop / document.documentElement.scrollHeight * 100 + '%';
-        minimapView.style.left = document.documentElement.scrollLeft / document.documentElement.scrollWidth * 100 + '%';
-        minimapView.style.width = document.documentElement.clientWidth / document.documentElement.scrollWidth * 100 + '%';
-        minimapView.style.height = document.documentElement.clientHeight / document.documentElement.scrollHeight * 100 + '%';
+      // Show viewport, hide empty state
+      emptyState.classList.add('hidden');
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
       }
 
-      let drag = false;
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
 
-      function init() {
-        setScale(1);
-        const bounds = map.getBoundingClientRect();
-        const scaleW = document.documentElement.clientWidth / bounds.width;
-        const scaleH = document.documentElement.clientHeight / bounds.height;
-        const maxAspectRatio = 0.2;
-        const scale = Math.min(Math.max(maxAspectRatio, scaleW / scaleH) * scaleH, Math.max(maxAspectRatio, scaleH / scaleW) * scaleW);
-        setScale(Math.min(scale, 1));
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap
+      initMinimap(svgText);
+    }
+
+    // === Zoom Controls ===
+
+    document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.25));
+    document.getElementById('zoom-out').addEventListener('click', () => zoomBy(0.8));
+    document.getElementById('zoom-reset').addEventListener('click', () => setZoom(1));
+
+    // === Dark Mode Toggle ===
+
+    darkModeToggle.addEventListener('click', toggleDarkMode);
+
+    function toggleDarkMode() {
+      darkMode = !darkMode;
+      svgContainer.classList.toggle('dark-mode', darkMode);
+      minimapContent.classList.toggle('dark-mode', darkMode);
+      darkModeToggle.classList.toggle('active', darkMode);
+    }
+
+    // === Minimap ===
+
+    minimapToggle.addEventListener('click', toggleMinimap);
+
+    function toggleMinimap() {
+      minimapVisible = !minimapVisible;
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+    }
+
+    function initMinimap(svgText) {
+      // Calculate minimap size to fit within bounds while preserving aspect ratio
+      const maxWidth = 400;
+      const maxHeight = 600;
+      const aspectRatio = svgWidth / svgHeight;
+
+      let mmWidth, mmHeight;
+      if (aspectRatio > maxWidth / maxHeight) {
+        // Width constrained
+        mmWidth = maxWidth;
+        mmHeight = maxWidth / aspectRatio;
+      } else {
+        // Height constrained
+        mmHeight = maxHeight;
+        mmWidth = maxHeight * aspectRatio;
       }
 
-      window.addEventListener('wheel', e => {
+      minimap.style.width = mmWidth + 'px';
+      minimap.style.height = mmHeight + 'px';
+
+      // Set canvas size (use higher resolution for retina displays)
+      const dpr = window.devicePixelRatio || 1;
+      minimapCanvas.width = mmWidth * dpr;
+      minimapCanvas.height = mmHeight * dpr;
+      minimapCanvas.style.width = mmWidth + 'px';
+      minimapCanvas.style.height = mmHeight + 'px';
+
+      // Show minimap
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+
+      // Sync dark mode
+      minimapContent.classList.toggle('dark-mode', darkMode);
+
+      // Rasterize SVG to canvas
+      rasterizeSvgToCanvas(svgText, mmWidth, mmHeight, dpr);
+
+      // Update viewport indicator
+      updateMinimapViewport();
+    }
+
+    function rasterizeSvgToCanvas(svgText, width, height, dpr) {
+      const img = new Image();
+      const blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+
+      img.onload = () => {
+        const ctx = minimapCanvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+
+        // Cache the image data for potential re-use
+        minimapImageData = ctx.getImageData(0, 0, minimapCanvas.width, minimapCanvas.height);
+      };
+
+      img.onerror = () => {
+        console.error('Failed to rasterize SVG for minimap');
+        URL.revokeObjectURL(url);
+      };
+
+      img.src = url;
+    }
+
+    function updateMinimapViewport() {
+      if (!svgElement || !minimapVisible) return;
+
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+
+      // Padding in the main viewport
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Current scroll position relative to SVG (not padding)
+      const scrollX = viewport.scrollLeft - padX;
+      const scrollY = viewport.scrollTop - padY;
+
+      // Visible area in SVG coordinates
+      const visibleX = scrollX / scale;
+      const visibleY = scrollY / scale;
+      const visibleW = vpRect.width / scale;
+      const visibleH = vpRect.height / scale;
+
+      // Scale to minimap coordinates
+      const mmScaleX = mmRect.width / svgWidth;
+      const mmScaleY = mmRect.height / svgHeight;
+
+      // Position and size the viewport indicator (no clamping - allow overflow)
+      const left = visibleX * mmScaleX;
+      const top = visibleY * mmScaleY;
+      const width = visibleW * mmScaleX;
+      const height = visibleH * mmScaleY;
+
+      minimapViewport.style.left = left + 'px';
+      minimapViewport.style.top = top + 'px';
+      minimapViewport.style.width = Math.max(10, width) + 'px';
+      minimapViewport.style.height = Math.max(10, height) + 'px';
+    }
+
+    // Update minimap on scroll
+    viewport.addEventListener('scroll', updateMinimapViewport);
+
+    // Minimap click/drag to navigate
+    minimapContent.addEventListener('mousedown', (e) => {
+      isMinimapDragging = true;
+
+      // Calculate offset so dragging feels natural
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = minimapViewport.getBoundingClientRect();
+
+      // Check if clicking inside the viewport indicator
+      const inViewport = e.clientX >= vpRect.left && e.clientX <= vpRect.right &&
+        e.clientY >= vpRect.top && e.clientY <= vpRect.bottom;
+
+      if (inViewport) {
+        // Drag from current position
+        minimapDragOffsetX = e.clientX - vpRect.left;
+        minimapDragOffsetY = e.clientY - vpRect.top;
+      } else {
+        // Click outside - center viewport on click point, then allow drag
+        const vpW = vpRect.width;
+        const vpH = vpRect.height;
+        minimapDragOffsetX = vpW / 2;
+        minimapDragOffsetY = vpH / 2;
+        navigateMinimapTo(e, true);
+      }
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isMinimapDragging) return;
+      navigateMinimapTo(e, true);
+    });
+
+    document.addEventListener('mouseup', () => {
+      isMinimapDragging = false;
+    });
+
+    function navigateMinimapTo(e, useDragOffset = false) {
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Mouse position in minimap
+      let mmX = e.clientX - mmRect.left;
+      let mmY = e.clientY - mmRect.top;
+
+      if (useDragOffset) {
+        // Adjust for drag offset (top-left of viewport indicator)
+        mmX -= minimapDragOffsetX;
+        mmY -= minimapDragOffsetY;
+      } else {
+        // Click centers the viewport on that point
+        const vpW = (vpRect.width / scale) * (mmRect.width / svgWidth);
+        const vpH = (vpRect.height / scale) * (mmRect.height / svgHeight);
+        mmX -= vpW / 2;
+        mmY -= vpH / 2;
+      }
+
+      // Convert to SVG coordinates
+      const svgX = (mmX / mmRect.width) * svgWidth;
+      const svgY = (mmY / mmRect.height) * svgHeight;
+
+      // Scroll to position (accounting for padding)
+      viewport.scrollLeft = svgX * scale + padX;
+      viewport.scrollTop = svgY * scale + padY;
+    }
+
+    function zoomBy(factor, centerX, centerY) {
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor));
+      if (newScale === scale) return;
+
+      const rect = viewport.getBoundingClientRect();
+      const oldPadX = rect.width;
+      const oldPadY = rect.height;
+
+      // If center point provided, zoom towards it
+      if (centerX !== undefined && centerY !== undefined) {
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates (accounting for padding)
+        const svgX = (scrollX + centerX - rect.left - oldPadX) / scale;
+        const svgY = (scrollY + centerY - rect.top - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        // New padding after zoom (viewport size doesn't change)
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        // Scroll to keep the point under cursor
+        viewport.scrollLeft = svgX * scale + newPadX - (centerX - rect.left);
+        viewport.scrollTop = svgY * scale + newPadY - (centerY - rect.top);
+      } else {
+        // Zoom towards center of viewport
+        const viewCenterX = rect.width / 2;
+        const viewCenterY = rect.height / 2;
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates
+        const svgX = (scrollX + viewCenterX - oldPadX) / scale;
+        const svgY = (scrollY + viewCenterY - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        viewport.scrollLeft = svgX * scale + newPadX - viewCenterX;
+        viewport.scrollTop = svgY * scale + newPadY - viewCenterY;
+      }
+    }
+
+    function setZoom(newScale) {
+      scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+      updateZoom();
+    }
+
+    function centerSvg() {
+      const rect = viewport.getBoundingClientRect();
+      const padX = rect.width;
+      const padY = rect.height;
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      // Scroll so SVG is centered in viewport
+      viewport.scrollLeft = padX + (scaledW - rect.width) / 2;
+      viewport.scrollTop = padY + (scaledH - rect.height) / 2;
+    }
+
+    function updateZoom() {
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportW = viewportRect.width;
+      const viewportH = viewportRect.height;
+
+      // Padding allows the SVG to be scrolled so it can be centered (or anywhere)
+      const padX = viewportW;
+      const padY = viewportH;
+
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      svgContainer.style.transform = `scale(${scale})`;
+      svgContainer.style.width = scaledW + 'px';
+      svgContainer.style.height = scaledH + 'px';
+
+      // Wrapper includes padding on all sides
+      svgWrapper.style.paddingLeft = padX + 'px';
+      svgWrapper.style.paddingTop = padY + 'px';
+      svgWrapper.style.paddingRight = padX + 'px';
+      svgWrapper.style.paddingBottom = padY + 'px';
+
+      zoomLevelEl.textContent = Math.round(scale * 100) + '%';
+
+      // Update minimap viewport indicator
+      updateMinimapViewport();
+    }
+
+    // Mouse wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      zoomBy(factor, e.clientX, e.clientY);
+    }, {passive: false});
+
+    // === Panning ===
+
+    function isTextElement(el) {
+      while (el && el !== viewport) {
+        if (el.tagName === 'text' || el.tagName === 'tspan') return true;
+        el = el.parentElement;
+      }
+      return false;
+    }
+
+    viewport.addEventListener('mousedown', (e) => {
+      // Middle mouse always pans
+      if (e.button === 1) {
         e.preventDefault();
-        zoom(e.deltaY > 0 ? (1 / 1.1) : 1.1, e.pageX, e.pageY);
-      }, {passive: false});
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+        return;
+      }
 
-      window.addEventListener('mousedown', e => {
-        if (e.target && e.target.tagName === 'text') return;
-        if (!(e.buttons & 1)) return;
-        if (drag) return;
-        drag = e.target || true;
-      }, {passive: true});
-
-      window.addEventListener('mouseup', e => {
-        if (e.buttons & 1) return;
-        drag = false;
-      }, {passive: true});
-
-      window.addEventListener('mousemove', e => {
-        handleMove(e);
-      }, {passive: false});
-
-      window.addEventListener('scroll', () => {
-        update();
-      }, {passive: true});
-
-      minimapContainer.addEventListener('mousedown', e => {
+      // Left click: pan if not on text, otherwise let browser handle selection
+      if (e.button === 0 && !isTextElement(e.target)) {
         e.preventDefault();
-      }, {passive: false});
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+      }
+    });
 
-      window.addEventListener('hashchange', () => {
-        load();
-      }, {passive: true});
+    document.addEventListener('mousemove', (e) => {
+      if (!isPanning) return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      viewport.scrollLeft = scrollStartX - dx;
+      viewport.scrollTop = scrollStartY - dy;
+    });
 
-      init();
-    </script>
-  </body>
+    document.addEventListener('mouseup', () => {
+      isPanning = false;
+      viewport.classList.remove('panning');
+    });
+
+    // === Touch Support (pinch zoom only, panning is native scroll) ===
+
+    let touchStartDist = 0;
+    let touchStartScale = 1;
+    let lastTouchCenter = null;
+
+    viewport.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        touchStartDist = getTouchDistance(e.touches);
+        touchStartScale = scale;
+        lastTouchCenter = getTouchCenter(e.touches);
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDistance(e.touches);
+        const center = getTouchCenter(e.touches);
+        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, touchStartScale * (dist / touchStartDist)));
+
+        if (newScale !== scale) {
+          // Zoom towards pinch center
+          const rect = viewport.getBoundingClientRect();
+          const padX = rect.width;
+          const padY = rect.height;
+
+          const svgX = (viewport.scrollLeft + center.x - rect.left - padX) / scale;
+          const svgY = (viewport.scrollTop + center.y - rect.top - padY) / scale;
+
+          scale = newScale;
+          updateZoom();
+
+          viewport.scrollLeft = svgX * scale + padX - (center.x - rect.left);
+          viewport.scrollTop = svgY * scale + padY - (center.y - rect.top);
+        }
+
+        lastTouchCenter = center;
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) {
+        touchStartDist = 0;
+        lastTouchCenter = null;
+      }
+    });
+
+    function getTouchDistance(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getTouchCenter(touches) {
+      return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2
+      };
+    }
+
+    // === Search ===
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(performSearch, 150);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          navigateSearch(-1);
+        } else {
+          navigateSearch(1);
+        }
+      } else if (e.key === 'Escape') {
+        searchInput.blur();
+        clearSearch();
+      }
+    });
+
+    document.getElementById('search-prev').addEventListener('click', () => navigateSearch(-1));
+    document.getElementById('search-next').addEventListener('click', () => navigateSearch(1));
+
+    // CSS Custom Highlight API highlights
+    let searchResultsHighlight = null;
+    let searchCurrentHighlight = null;
+
+    // Initialize highlights if API is available
+    if (CSS.highlights) {
+      searchResultsHighlight = new Highlight();
+      searchCurrentHighlight = new Highlight();
+      CSS.highlights.set('search-results', searchResultsHighlight);
+      CSS.highlights.set('search-current', searchCurrentHighlight);
+    }
+
+    function performSearch() {
+      if (!svgElement) return;
+
+      const query = searchInput.value.trim();
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+
+      if (!query) {
+        updateSearchInfo();
+        searchInput.classList.remove('invalid');
+        return;
+      }
+
+      // Try to compile regex
+      let regex;
+      try {
+        regex = new RegExp(query, 'gi');
+        searchInput.classList.remove('invalid');
+      } catch (e) {
+        // Invalid regex
+        searchInput.classList.add('invalid');
+        updateSearchInfo();
+        return;
+      }
+
+      // Find all text elements containing matches
+      const textElements = svgElement.querySelectorAll('text');
+      textElements.forEach((textEl) => {
+        const content = textEl.textContent || '';
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        let match;
+        regex.lastIndex = 0; // Reset regex state
+        while ((match = regex.exec(content)) !== null) {
+          // Create range for this match
+          try {
+            const range = new Range();
+            range.setStart(textNode, match.index);
+            range.setEnd(textNode, match.index + match[0].length);
+
+            searchMatches.push({
+              element: textEl,
+              start: match.index,
+              length: match[0].length,
+              text: match[0],
+              range: range
+            });
+          } catch (e) {
+            // Range creation failed, skip this match
+          }
+
+          // Prevent infinite loop on zero-length matches
+          if (match[0].length === 0) regex.lastIndex++;
+        }
+      });
+
+      // Add all ranges to the highlight (if API available)
+      if (searchResultsHighlight) {
+        searchMatches.forEach(match => {
+          searchResultsHighlight.add(match.range);
+        });
+      } else {
+        // Fallback: use SVG rects
+        searchMatches.forEach((match, index) => {
+          const rect = createHighlightRect(match);
+          if (rect) {
+            rect.dataset.index = index;
+            highlightGroup.appendChild(rect);
+          }
+        });
+      }
+
+      updateSearchInfo();
+
+      // Navigate to first match (don't select - user is still typing)
+      if (searchMatches.length > 0) {
+        currentMatchIndex = 0;
+        highlightCurrentMatch();
+        scrollToCurrentMatch(false);
+      }
+    }
+
+    function createHighlightRect(match) {
+      try {
+        const textEl = match.element;
+        const fullBbox = textEl.getBBox();
+        const content = textEl.textContent || '';
+
+        // Calculate approximate character width
+        const charWidth = fullBbox.width / content.length;
+
+        // Calculate highlight bounds for the matched portion
+        const x = fullBbox.x + (match.start * charWidth);
+        const width = match.length * charWidth;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x - 1);
+        rect.setAttribute('y', fullBbox.y - 2);
+        rect.setAttribute('width', width + 2);
+        rect.setAttribute('height', fullBbox.height + 4);
+        rect.classList.add('search-highlight');
+
+        // Apply transforms from parent elements
+        let transform = '';
+        let el = textEl;
+        while (el && el !== svgElement) {
+          const t = el.getAttribute('transform');
+          if (t) transform = t + ' ' + transform;
+          el = el.parentElement;
+        }
+        if (transform) {
+          rect.setAttribute('transform', transform);
+        }
+
+        return rect;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function clearHighlights() {
+      // Clear CSS Custom Highlights
+      if (searchResultsHighlight) {
+        searchResultsHighlight.clear();
+      }
+      if (searchCurrentHighlight) {
+        searchCurrentHighlight.clear();
+      }
+      // Clear SVG rect fallback
+      if (highlightGroup) {
+        highlightGroup.innerHTML = '';
+      }
+    }
+
+    function clearSearch() {
+      searchInput.value = '';
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+      updateSearchInfo();
+    }
+
+    function navigateSearch(direction) {
+      if (searchMatches.length === 0) return;
+
+      currentMatchIndex += direction;
+      if (currentMatchIndex >= searchMatches.length) {
+        currentMatchIndex = 0;
+      } else if (currentMatchIndex < 0) {
+        currentMatchIndex = searchMatches.length - 1;
+      }
+
+      highlightCurrentMatch();
+      scrollToCurrentMatch(true); // Select text on explicit navigation
+    }
+
+    function highlightCurrentMatch() {
+      if (searchCurrentHighlight) {
+        // Update current highlight
+        searchCurrentHighlight.clear();
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchMatches.length) {
+          searchCurrentHighlight.add(searchMatches[currentMatchIndex].range);
+        }
+      } else {
+        // Fallback: toggle class on SVG rects
+        const rects = highlightGroup.querySelectorAll('rect');
+        rects.forEach((rect, i) => {
+          rect.classList.toggle('current', i === currentMatchIndex);
+        });
+      }
+      updateSearchInfo();
+    }
+
+    function scrollToCurrentMatch(shouldSelect = false) {
+      if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
+
+      const match = searchMatches[currentMatchIndex];
+      const textEl = match.element;
+      try {
+        const bbox = textEl.getBBox();
+
+        // Get cumulative transform
+        let el = textEl;
+        let matrix = svgElement.createSVGMatrix();
+        const transforms = [];
+        while (el && el !== svgElement) {
+          const t = el.transform?.baseVal?.consolidate()?.matrix;
+          if (t) transforms.unshift(t);
+          el = el.parentElement;
+        }
+        transforms.forEach(t => {
+          matrix = matrix.multiply(t);
+        });
+
+        // Transform the center point
+        const centerX = bbox.x + bbox.width / 2;
+        const centerY = bbox.y + bbox.height / 2;
+        const point = svgElement.createSVGPoint();
+        point.x = centerX;
+        point.y = centerY;
+        const transformed = point.matrixTransform(matrix);
+
+        // Convert to screen coordinates and scroll (accounting for padding)
+        const viewportRect = viewport.getBoundingClientRect();
+        const padX = viewportRect.width;
+        const padY = viewportRect.height;
+
+        const screenX = transformed.x * scale + padX;
+        const screenY = transformed.y * scale + padY;
+
+        const targetScrollX = screenX - viewportRect.width / 2;
+        const targetScrollY = screenY - viewportRect.height / 2;
+
+        viewport.scrollTo({
+          left: targetScrollX,
+          top: targetScrollY,
+          behavior: 'smooth'
+        });
+
+        // Only select text on explicit navigation (Enter/buttons), not while typing
+        if (shouldSelect) {
+          selectMatchedText(match);
+        }
+      } catch (e) {
+        // Fallback: try to scroll the element into view
+        textEl.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});
+      }
+    }
+
+    function selectMatchedText(match) {
+      try {
+        const textEl = match.element;
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.setStart(textNode, match.start);
+        range.setEnd(textNode, match.start + match.length);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (e) {
+        // Selection not supported or failed
+      }
+    }
+
+    function updateSearchInfo() {
+      if (searchMatches.length === 0) {
+        searchInfo.textContent = searchInput.value ? 'No matches' : '0 / 0';
+      } else {
+        searchInfo.textContent = `${currentMatchIndex + 1} / ${searchMatches.length}`;
+      }
+    }
+
+    // === Keyboard Shortcuts ===
+
+    document.addEventListener('keydown', (e) => {
+      // Don't handle shortcuts if typing in search
+      if (document.activeElement === searchInput) return;
+
+      // Zoom shortcuts
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomBy(1.25);
+      } else if (e.key === '-') {
+        e.preventDefault();
+        zoomBy(0.8);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setZoom(1);
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        toggleDarkMode();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        toggleMinimap();
+      }
+    });
+
+    // === Embedded SVG Support ===
+
+    function initializeEmbeddedSvg() {
+      // Check if an SVG is already present in the container (embedded at build time)
+      svgElement = svgContainer.querySelector('svg');
+      if (!svgElement) return false;
+
+      // Hide file selection UI since this is a self-contained viewer
+      const fileGroup = document.querySelector('#toolbar .group:first-child');
+      if (fileGroup) fileGroup.style.display = 'none';
+      emptyState.style.display = 'none';
+
+      // Show viewport
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap - serialize SVG for rasterization
+      const svgText = new XMLSerializer().serializeToString(svgElement);
+      initMinimap(svgText);
+
+      return true;
+    }
+
+    // Check for embedded SVG on startup
+    const hasEmbeddedSvg = initializeEmbeddedSvg();
+
+    // === URL Hash Loading ===
+
+    async function loadFromHash() {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return;
+
+      const params = new URLSearchParams(hash);
+
+      // Check for url= parameter
+      const url = params.get('url');
+      if (url) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            // Extract filename from URL for title
+            const filename = url.split('/').pop() || 'remote';
+            document.title = `SVG Viewer - ${filename}`;
+          } else {
+            console.error('Failed to load SVG from URL:', response.status);
+          }
+        } catch (err) {
+          console.error('Failed to load SVG from URL:', err);
+        }
+        return;
+      }
+
+      // Check for example= parameter
+      const example = params.get('example');
+      if (example && exampleFiles.includes(example)) {
+        try {
+          const response = await fetch(`examples/${example}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${example}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+      }
+    }
+
+    // Only load from hash if no embedded SVG
+    if (!hasEmbeddedSvg) {
+      loadFromHash();
+      window.addEventListener('hashchange', loadFromHash);
+    }
+
+  </script>
+</body>
+
 </html>
-

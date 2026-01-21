@@ -1,0 +1,2597 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVG Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #toolbar {
+      background: #2d2d2d;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #444;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #toolbar .group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #toolbar label {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #toolbar button {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    #toolbar button:hover {
+      background: #555;
+    }
+
+    #toolbar button:active {
+      background: #666;
+    }
+
+    #file-input {
+      font-size: 13px;
+    }
+
+    .examples-select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .examples-select:hover {
+      background: #555;
+    }
+
+    #zoom-level {
+      min-width: 50px;
+      text-align: center;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #search-input {
+      background: #333;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      width: 200px;
+    }
+
+    #search-input:focus {
+      outline: none;
+      border-color: #0078d4;
+    }
+
+    #search-input.invalid {
+      border-color: #d32f2f;
+      background: #3d2020;
+    }
+
+    #search-info {
+      font-size: 13px;
+      color: #aaa;
+      min-width: 60px;
+    }
+
+    #viewport {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      touch-action: pan-x pan-y;
+      cursor: grab;
+    }
+
+    #viewport.panning {
+      cursor: grabbing;
+    }
+
+    #svg-container text {
+      cursor: text;
+    }
+
+    #svg-wrapper {
+      display: inline-block;
+      /* Padding allows SVG to be scrolled/centered even when zoomed out */
+    }
+
+    #svg-container {
+      transform-origin: 0 0;
+      display: inline-block;
+    }
+
+    #svg-container svg {
+      display: block;
+    }
+
+    /* Dark mode for SVG - invert with reduced contrast */
+    #svg-container.dark-mode svg {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    /* Toggle button active state */
+    #toolbar button.active {
+      background: #0078d4;
+      border-color: #0078d4;
+    }
+
+    #toolbar button.active:hover {
+      background: #1084d8;
+    }
+
+    /* Search highlight styling - SVG rect fallback */
+    .search-highlight {
+      fill: #22ee22;
+      stroke: #00aa00;
+      stroke-width: 1;
+      pointer-events: none;
+    }
+
+    .search-highlight.current {
+      fill: #ff22ff;
+      stroke: #cc00cc;
+      stroke-width: 2;
+    }
+
+    /* CSS Custom Highlight API styling */
+    ::highlight(search-results) {
+      background-color: #22ee22;
+      color: black;
+    }
+
+    ::highlight(search-current) {
+      background-color: #ff22ff;
+      color: black;
+    }
+
+    #hint {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    #hint kbd {
+      background: #444;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: inherit;
+      margin: 0 2px;
+    }
+
+    /* Hide hint on mobile/touch devices */
+    @media (hover: none),
+    (max-width: 768px) {
+      #hint {
+        display: none;
+      }
+    }
+
+    /* Minimap */
+    #minimap {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      width: 400px;
+      max-height: 600px;
+      background: #2d2d2d;
+      border: 1px solid #444;
+      border-radius: 6px;
+      overflow: hidden;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    #minimap.visible {
+      display: block;
+    }
+
+    #minimap-content {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #minimap-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #minimap-viewport {
+      position: absolute;
+      border: 2px solid #0078d4;
+      background: rgba(0, 120, 212, 0.15);
+      cursor: move;
+      pointer-events: auto;
+    }
+
+    #minimap-content.dark-mode #minimap-canvas {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    #drop-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 120, 212, 0.2);
+      border: 3px dashed #0078d4;
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #0078d4;
+    }
+
+    #drop-overlay.active {
+      display: flex;
+    }
+
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      gap: 16px;
+    }
+
+    #empty-state.hidden {
+      display: none;
+    }
+
+    #empty-state .empty-title {
+      font-size: 32px;
+      font-weight: 600;
+      color: #ccc;
+    }
+
+    #empty-state .empty-subtitle {
+      font-size: 18px;
+      color: #666;
+    }
+
+    #empty-state .empty-divider {
+      font-size: 14px;
+      color: #555;
+      margin: 8px 0;
+    }
+
+    #empty-state .empty-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    #empty-state button,
+    #empty-state select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #empty-state button:hover,
+    #empty-state select:hover {
+      background: #555;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="toolbar">
+    <div class="group">
+      <input type="file" id="file-input" accept=".svg">
+      <select class="examples-select" title="Load example SVG">
+        <option value="">Examples...</option>
+      </select>
+    </div>
+    <div class="group">
+      <button id="zoom-out" title="Zoom out (-)">-</button>
+      <span id="zoom-level">100%</span>
+      <button id="zoom-in" title="Zoom in (+)">+</button>
+      <button id="zoom-reset" title="Reset zoom (0)">Reset</button>
+    </div>
+    <div class="group">
+      <button id="dark-mode-toggle" title="Toggle dark mode for SVG (D)">Dark Mode</button>
+      <button id="minimap-toggle" title="Toggle minimap (M)">Minimap</button>
+    </div>
+    <div class="group">
+      <input type="search" id="search-input" placeholder="Regex search...">
+      <button id="search-prev" title="Previous match (Shift+Enter)">Prev</button>
+      <span id="search-info">0 / 0</span>
+      <button id="search-next" title="Next match (Enter)">Next</button>
+    </div>
+  </div>
+
+  <div id="empty-state">
+    <div class="empty-title">SVG Viewer</div>
+    <div class="empty-subtitle">Drop an SVG file here</div>
+    <div class="empty-divider">or</div>
+    <div class="empty-actions">
+      <button id="empty-file-btn">Choose File</button>
+      <select class="examples-select">
+        <option value="">Load Example...</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="viewport" style="display: none;">
+    <div id="svg-wrapper">
+      <div id="svg-container"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 14.1.1 (20251213.1925)
+ -->
+<!-- Pages: 1 -->
+<svg width="8684pt" height="1043pt"
+ viewBox="0.00 0.00 8684.00 1043.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 1039)">
+<polygon fill="white" stroke="none" points="-4,4 -4,-1039 8680.16,-1039 8680.16,4 -4,4"/>
+<!-- kg_06_camera_ms110_C -->
+<g id="node1" class="node">
+<title>kg_06_camera_ms110_C</title>
+<polygon fill="#d4ffd4" stroke="none" points="8,-955 8,-1031 525.5,-1031 525.5,-955 8,-955"/>
+<polygon fill="none" stroke="black" points="8,-955 8,-1031 525.5,-1031 525.5,-955 8,-955"/>
+<text xml:space="preserve" text-anchor="start" x="11" y="-1015.7" font-family="monospace" font-size="14.00" fill="#800080">ClassExport:</text>
+<text xml:space="preserve" text-anchor="start" x="110" y="-1015.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="118.25" y="-1015.7" font-family="monospace" font-size="14.00" fill="#996300">kg_06_camera_ms110_C</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-1001.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-1001.7" font-family="monospace" font-size="14.00" fill="#800080">SuperStruct:</text>
+<text xml:space="preserve" text-anchor="start" x="126.5" y="-1001.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="151.25" y="-1001.7" font-family="monospace" font-size="14.00" fill="#996300">import /Script/TresGame&#45;&gt;TresLevelScriptActor</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-987.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-987.7" font-family="monospace" font-size="14.00" fill="#800080">Properties:</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-973.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="44" y="-973.7" font-family="monospace" font-size="14.00" fill="#996300">Struct</text>
+<text xml:space="preserve" text-anchor="start" x="93.5" y="-973.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="134.75" y="-973.7" font-family="monospace" font-size="14.00" fill="#006400">UberGraphFrame</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-959.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="60.5" y="-959.7" font-family="monospace" font-size="14.00" fill="#800080">CPF_Transient|CPF_DuplicateTransient</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110 -->
+<g id="node2" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110</title>
+<polygon fill="#ffd4d4" stroke="none" points="573.88,-982.5 573.88,-1030.5 1033.62,-1030.5 1033.62,-982.5 573.88,-982.5"/>
+<polygon fill="none" stroke="black" points="573.88,-982.5 573.88,-1030.5 1033.62,-1030.5 1033.62,-982.5 573.88,-982.5"/>
+<text xml:space="preserve" text-anchor="start" x="576.88" y="-1015.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="642.88" y="-1015.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="651.12" y="-1015.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="576.88" y="-1001.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="593.38" y="-1001.2" font-family="monospace" font-size="14.00" fill="#996300">Int</text>
+<text xml:space="preserve" text-anchor="start" x="618.12" y="-1001.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="642.88" y="-1001.2" font-family="monospace" font-size="14.00" fill="#006400">EntryPoint</text>
+<text xml:space="preserve" text-anchor="start" x="576.88" y="-987.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="609.88" y="-987.2" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_0 -->
+<g id="node3" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="549.12,-882 549.12,-938.5 1058.38,-938.5 1058.38,-882 549.12,-882"/>
+<polygon fill="none" stroke="black" points="549.12,-916 549.12,-938.5 1058.38,-938.5 1058.38,-916 549.12,-916"/>
+<text xml:space="preserve" text-anchor="start" x="552.12" y="-922.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 0</text>
+<polygon fill="none" stroke="black" points="549.12,-882 549.12,-916 1058.38,-916 1058.38,-882 549.12,-882"/>
+<text xml:space="preserve" text-anchor="start" x="552.12" y="-900.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="576.88" y="-900.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ComputedJump</text>
+<text xml:space="preserve" text-anchor="start" x="552.12" y="-886.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1: </text>
+<text xml:space="preserve" text-anchor="start" x="576.88" y="-886.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="593.38" y="-886.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="725.38" y="-886.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="733.62" y="-886.7" font-family="monospace" font-size="14.00" fill="#006400">EntryPoint</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_0 -->
+<g id="edge1" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_0:n</title>
+<path fill="none" stroke="black" d="M803.75,-978.52C803.75,-970.86 803.75,-962.29 803.75,-953.84"/>
+<polygon fill="black" stroke="black" points="807.25,-954.01 803.75,-944.01 800.25,-954.01 807.25,-954.01"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="node4" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_692</title>
+<polygon fill="#eeeeee" stroke="none" points="5420.88,-4 5420.88,-60.5 5946.62,-60.5 5946.62,-4 5420.88,-4"/>
+<polygon fill="none" stroke="black" points="5420.88,-38 5420.88,-60.5 5946.62,-60.5 5946.62,-38 5420.88,-38"/>
+<text xml:space="preserve" text-anchor="start" x="5423.88" y="-44.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 692</text>
+<polygon fill="none" stroke="black" points="5420.88,-4 5420.88,-38 5946.62,-38 5946.62,-4 5420.88,-4"/>
+<text xml:space="preserve" text-anchor="start" x="5423.88" y="-22.7" font-family="monospace" font-size="14.00" fill="#555555">692: </text>
+<text xml:space="preserve" text-anchor="start" x="5465.12" y="-22.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="5423.88" y="-8.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">693: </text>
+<text xml:space="preserve" text-anchor="start" x="5465.12" y="-8.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5481.62" y="-8.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_75 -->
+<g id="node5" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_75</title>
+<polygon fill="#eeeeee" stroke="none" points="7827.62,-111.5 7827.62,-196 8567.88,-196 8567.88,-111.5 7827.62,-111.5"/>
+<polygon fill="none" stroke="black" points="7827.62,-173.5 7827.62,-196 8567.88,-196 8567.88,-173.5 7827.62,-173.5"/>
+<text xml:space="preserve" text-anchor="start" x="7942" y="-179.7" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 75</text>
+<polygon fill="none" stroke="black" points="7827.62,-111.5 7827.62,-173.5 8567.88,-173.5 8567.88,-111.5 7827.62,-111.5"/>
+<text xml:space="preserve" text-anchor="start" x="7830.62" y="-158.2" font-family="monospace" font-size="14.00" fill="#555555">75: </text>
+<text xml:space="preserve" text-anchor="start" x="7863.62" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="7830.62" y="-144.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">76: </text>
+<text xml:space="preserve" text-anchor="start" x="7863.62" y="-144.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7880.12" y="-144.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="8036.88" y="-144.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8045.12" y="-144.2" font-family="monospace" font-size="14.00" fill="#006400">Aqua_Axel_Cut02_ExecuteUbergraph_kg_06_camera_ms110_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="7830.62" y="-130.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">97: </text>
+<text xml:space="preserve" text-anchor="start" x="7863.62" y="-130.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7880.12" y="-130.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="8028.62" y="-130.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8036.88" y="-130.2" font-family="monospace" font-size="14.00" fill="#6a0080">Play</text>
+<text xml:space="preserve" text-anchor="start" x="7830.62" y="-116.2" font-family="monospace" font-size="14.00" fill="#555555">111: </text>
+<text xml:space="preserve" text-anchor="start" x="7871.88" y="-116.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="7929.62" y="-116.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7937.88" y="-116.2" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_75&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge2" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_75&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="black" d="M7880.89,-107.51C7854.83,-104.77 7828.87,-102.37 7803.75,-100.5 7775.62,-98.4 5855.7,-94.31 5694.5,-68.08"/>
+<polygon fill="black" stroke="black" points="5695.78,-64.82 5685.19,-64.98 5693.57,-71.46 5695.78,-64.82"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_177 -->
+<g id="node6" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_177</title>
+<polygon fill="#eeeeee" stroke="none" points="6923.37,-247 6923.37,-597.5 7746.12,-597.5 7746.12,-247 6923.37,-247"/>
+<polygon fill="none" stroke="black" points="6923.37,-575 6923.37,-597.5 7746.12,-597.5 7746.12,-575 6923.37,-575"/>
+<text xml:space="preserve" text-anchor="start" x="7074.87" y="-581.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 177</text>
+<polygon fill="none" stroke="black" points="6923.37,-247 6923.37,-575 7746.12,-575 7746.12,-247 6923.37,-247"/>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-559.7" font-family="monospace" font-size="14.00" fill="#555555">177: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-559.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-545.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">178: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-545.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6984.12" y="-545.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="7099.62" y="-545.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7107.87" y="-545.7" font-family="monospace" font-size="14.00" fill="#006400">import /Script/TresGame&#45;&gt;Default__TresGameBlueprintLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-531.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">199: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-531.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6984.12" y="-531.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7116.12" y="-531.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7124.37" y="-531.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGameBlueprintLibrary&#45;&gt;TresStartCinematicModeEx</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-517.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">208: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-517.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-517.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-503.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">209: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-503.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-503.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-489.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">210: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-489.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-489.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-475.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">211: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-475.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-475.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-461.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">212: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-461.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-461.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-447.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">213: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-447.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-447.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ByteConst</text>
+<text xml:space="preserve" text-anchor="start" x="7099.62" y="-447.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7107.87" y="-447.7" font-family="monospace" font-size="14.00" fill="#0000cd">2</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-433.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">215: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-433.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-433.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ByteConst</text>
+<text xml:space="preserve" text-anchor="start" x="7099.62" y="-433.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7107.87" y="-433.7" font-family="monospace" font-size="14.00" fill="#0000cd">0</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-419.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">217: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-419.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-419.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-405.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">218: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-405.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-405.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-391.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">219: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-391.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-391.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-377.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">220: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-377.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-377.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-363.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">221: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-363.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-363.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-349.7" font-family="monospace" font-size="14.00" fill="#555555">223: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-349.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-335.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">224: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-335.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6984.12" y="-335.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="7116.12" y="-335.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7124.37" y="-335.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-321.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">233: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-321.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6984.12" y="-321.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-307.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">234: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-307.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-307.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="7116.12" y="-307.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7124.37" y="-307.7" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__KismetSystemLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-293.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">255: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-293.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7000.62" y="-293.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7132.62" y="-293.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7140.87" y="-293.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetSystemLibrary&#45;&gt;IsValid</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-279.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">264: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-279.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7017.12" y="-279.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="7173.87" y="-279.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7182.12" y="-279.7" font-family="monospace" font-size="14.00" fill="#006400">Aqua_Axel_Cut01_1_ExecuteUbergraph_kg_06_camera_ms110_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-265.7" font-family="monospace" font-size="14.00" fill="#555555">274: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-265.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="7066.62" y="-265.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7074.87" y="-265.7" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+<text xml:space="preserve" text-anchor="start" x="6926.37" y="-251.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">279: </text>
+<text xml:space="preserve" text-anchor="start" x="6967.62" y="-251.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6984.12" y="-251.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="7116.12" y="-251.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7124.37" y="-251.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_177&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge3" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_177:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="red" d="M7755,-422.25C7790.83,-422.25 7759.69,-124.13 7732.75,-100.5 7691.67,-64.46 5841.26,-116.9 5693.14,-70.8"/>
+<polygon fill="none" stroke="red" points="5695.26,-68 5685.01,-65.34 5691.37,-73.82 5695.26,-68"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_288 -->
+<g id="node7" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_288</title>
+<polygon fill="#eeeeee" stroke="none" points="6950.25,-111.5 6950.25,-196 7715.25,-196 7715.25,-111.5 6950.25,-111.5"/>
+<polygon fill="none" stroke="black" points="6950.25,-173.5 6950.25,-196 7715.25,-196 7715.25,-173.5 6950.25,-173.5"/>
+<text xml:space="preserve" text-anchor="start" x="7072.88" y="-179.7" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 288</text>
+<polygon fill="none" stroke="black" points="6950.25,-111.5 6950.25,-173.5 7715.25,-173.5 7715.25,-111.5 6950.25,-111.5"/>
+<text xml:space="preserve" text-anchor="start" x="6953.25" y="-158.2" font-family="monospace" font-size="14.00" fill="#555555">288: </text>
+<text xml:space="preserve" text-anchor="start" x="6994.5" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6953.25" y="-144.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">289: </text>
+<text xml:space="preserve" text-anchor="start" x="6994.5" y="-144.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7011" y="-144.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="7167.75" y="-144.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7176" y="-144.2" font-family="monospace" font-size="14.00" fill="#006400">Aqua_Axel_Cut01_1_ExecuteUbergraph_kg_06_camera_ms110_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="6953.25" y="-130.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">310: </text>
+<text xml:space="preserve" text-anchor="start" x="6994.5" y="-130.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7011" y="-130.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7159.5" y="-130.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7167.75" y="-130.2" font-family="monospace" font-size="14.00" fill="#6a0080">Play</text>
+<text xml:space="preserve" text-anchor="start" x="6953.25" y="-116.2" font-family="monospace" font-size="14.00" fill="#555555">324: </text>
+<text xml:space="preserve" text-anchor="start" x="6994.5" y="-116.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="7052.25" y="-116.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7060.5" y="-116.2" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_177&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_288 -->
+<g id="edge4" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_177&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_288:n</title>
+<path fill="none" stroke="green" d="M7332.86,-243.06C7332.81,-232.64 7332.77,-222.25 7332.76,-212.06"/>
+<polygon fill="green" stroke="green" points="7336.26,-212.16 7332.75,-202.17 7329.26,-212.17 7336.26,-212.16"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_288&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge5" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_288&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="black" d="M7003.7,-107.52C6978.03,-104.84 6952.49,-102.45 6927.75,-100.5 6895.14,-97.93 5810.29,-98.94 5693.85,-69.77"/>
+<polygon fill="black" stroke="black" points="5695.58,-66.72 5685.09,-65.2 5692.34,-72.93 5695.58,-66.72"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_404 -->
+<g id="node8" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_404</title>
+<polygon fill="#eeeeee" stroke="none" points="6129.5,-111.5 6129.5,-196 6878,-196 6878,-111.5 6129.5,-111.5"/>
+<polygon fill="none" stroke="black" points="6129.5,-173.5 6129.5,-196 6878,-196 6878,-173.5 6129.5,-173.5"/>
+<text xml:space="preserve" text-anchor="start" x="6243.88" y="-179.7" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 404</text>
+<polygon fill="none" stroke="black" points="6129.5,-111.5 6129.5,-173.5 6878,-173.5 6878,-111.5 6129.5,-111.5"/>
+<text xml:space="preserve" text-anchor="start" x="6132.5" y="-158.2" font-family="monospace" font-size="14.00" fill="#555555">404: </text>
+<text xml:space="preserve" text-anchor="start" x="6173.75" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6132.5" y="-144.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">405: </text>
+<text xml:space="preserve" text-anchor="start" x="6173.75" y="-144.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6190.25" y="-144.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6347" y="-144.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6355.25" y="-144.2" font-family="monospace" font-size="14.00" fill="#006400">Aqua_Axel_Cut03_ExecuteUbergraph_kg_06_camera_ms110_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="6132.5" y="-130.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">426: </text>
+<text xml:space="preserve" text-anchor="start" x="6173.75" y="-130.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6190.25" y="-130.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6338.75" y="-130.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6347" y="-130.2" font-family="monospace" font-size="14.00" fill="#6a0080">Play</text>
+<text xml:space="preserve" text-anchor="start" x="6132.5" y="-116.2" font-family="monospace" font-size="14.00" fill="#555555">440: </text>
+<text xml:space="preserve" text-anchor="start" x="6173.75" y="-116.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="6231.5" y="-116.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6239.75" y="-116.2" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_404&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge6" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_404&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="black" d="M6169.27,-107.5C6148.47,-105.03 6127.83,-102.68 6107.75,-100.5 6064.23,-95.78 5737.89,-109.47 5689.69,-74.01"/>
+<polygon fill="black" stroke="black" points="5692.82,-72.41 5684.55,-65.78 5686.88,-76.12 5692.82,-72.41"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_510 -->
+<g id="node9" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_510</title>
+<polygon fill="#eeeeee" stroke="none" points="5309.5,-111.5 5309.5,-196 6058,-196 6058,-111.5 5309.5,-111.5"/>
+<polygon fill="none" stroke="black" points="5309.5,-173.5 5309.5,-196 6058,-196 6058,-173.5 5309.5,-173.5"/>
+<text xml:space="preserve" text-anchor="start" x="5423.88" y="-179.7" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 510</text>
+<polygon fill="none" stroke="black" points="5309.5,-111.5 5309.5,-173.5 6058,-173.5 6058,-111.5 5309.5,-111.5"/>
+<text xml:space="preserve" text-anchor="start" x="5312.5" y="-158.2" font-family="monospace" font-size="14.00" fill="#555555">510: </text>
+<text xml:space="preserve" text-anchor="start" x="5353.75" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="5312.5" y="-144.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">511: </text>
+<text xml:space="preserve" text-anchor="start" x="5353.75" y="-144.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5370.25" y="-144.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="5527" y="-144.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5535.25" y="-144.2" font-family="monospace" font-size="14.00" fill="#006400">Aqua_Axel_Cut04_ExecuteUbergraph_kg_06_camera_ms110_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="5312.5" y="-130.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">532: </text>
+<text xml:space="preserve" text-anchor="start" x="5353.75" y="-130.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5370.25" y="-130.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="5518.75" y="-130.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5527" y="-130.2" font-family="monospace" font-size="14.00" fill="#6a0080">Play</text>
+<text xml:space="preserve" text-anchor="start" x="5312.5" y="-116.2" font-family="monospace" font-size="14.00" fill="#555555">546: </text>
+<text xml:space="preserve" text-anchor="start" x="5353.75" y="-116.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="5411.5" y="-116.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5419.75" y="-116.2" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_510&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge7" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_510&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="black" d="M5683.75,-107.85C5683.75,-97.65 5683.75,-86.65 5683.75,-75.95"/>
+<polygon fill="black" stroke="black" points="5687.25,-76.01 5683.75,-66.01 5680.25,-76.01 5687.25,-76.01"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_657 -->
+<g id="node10" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_657</title>
+<polygon fill="#eeeeee" stroke="none" points="4489.5,-104.5 4489.5,-203 5238,-203 5238,-104.5 4489.5,-104.5"/>
+<polygon fill="none" stroke="black" points="4489.5,-180.5 4489.5,-203 5238,-203 5238,-180.5 4489.5,-180.5"/>
+<text xml:space="preserve" text-anchor="start" x="4603.88" y="-186.7" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 657</text>
+<polygon fill="none" stroke="black" points="4489.5,-104.5 4489.5,-180.5 5238,-180.5 5238,-104.5 4489.5,-104.5"/>
+<text xml:space="preserve" text-anchor="start" x="4492.5" y="-165.2" font-family="monospace" font-size="14.00" fill="#555555">657: </text>
+<text xml:space="preserve" text-anchor="start" x="4533.75" y="-165.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="4591.5" y="-165.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4599.75" y="-165.2" font-family="monospace" font-size="14.00" fill="#555555">551</text>
+<text xml:space="preserve" text-anchor="start" x="4492.5" y="-151.2" font-family="monospace" font-size="14.00" fill="#555555">551: </text>
+<text xml:space="preserve" text-anchor="start" x="4533.75" y="-151.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4492.5" y="-137.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">552: </text>
+<text xml:space="preserve" text-anchor="start" x="4533.75" y="-137.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4550.25" y="-137.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4707" y="-137.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4715.25" y="-137.2" font-family="monospace" font-size="14.00" fill="#006400">Aqua_Axel_Cut05_ExecuteUbergraph_kg_06_camera_ms110_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4492.5" y="-123.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">573: </text>
+<text xml:space="preserve" text-anchor="start" x="4533.75" y="-123.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4550.25" y="-123.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4698.75" y="-123.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4707" y="-123.2" font-family="monospace" font-size="14.00" fill="#6a0080">Play</text>
+<text xml:space="preserve" text-anchor="start" x="4492.5" y="-109.2" font-family="monospace" font-size="14.00" fill="#555555">587: </text>
+<text xml:space="preserve" text-anchor="start" x="4533.75" y="-109.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="4591.5" y="-109.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4599.75" y="-109.2" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_657&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge8" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_657&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="black" d="M5245.97,-102.01C5250.59,-101.5 5255.18,-100.99 5259.75,-100.5 5303.27,-95.78 5629.61,-109.47 5677.81,-74.01"/>
+<polygon fill="black" stroke="black" points="5680.62,-76.12 5682.95,-65.78 5674.68,-72.41 5680.62,-76.12"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_116 -->
+<g id="node11" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_116</title>
+<polygon fill="#eeeeee" stroke="none" points="6805.62,-641.5 6805.62,-782 7809.87,-782 7809.87,-641.5 6805.62,-641.5"/>
+<polygon fill="none" stroke="black" points="6805.62,-759.5 6805.62,-782 7809.87,-782 7809.87,-759.5 6805.62,-759.5"/>
+<text xml:space="preserve" text-anchor="start" x="7047.87" y="-765.7" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 116</text>
+<polygon fill="none" stroke="black" points="6805.62,-641.5 6805.62,-759.5 7809.87,-759.5 7809.87,-641.5 6805.62,-641.5"/>
+<text xml:space="preserve" text-anchor="start" x="6808.62" y="-744.2" font-family="monospace" font-size="14.00" fill="#555555">116: </text>
+<text xml:space="preserve" text-anchor="start" x="6849.87" y="-744.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="6808.62" y="-730.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">117: </text>
+<text xml:space="preserve" text-anchor="start" x="6849.87" y="-730.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6866.37" y="-730.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6998.37" y="-730.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7006.62" y="-730.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsDebug_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="6808.62" y="-716.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">126: </text>
+<text xml:space="preserve" text-anchor="start" x="6849.87" y="-716.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6866.37" y="-716.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6808.62" y="-702.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">127: </text>
+<text xml:space="preserve" text-anchor="start" x="6849.87" y="-702.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6882.87" y="-702.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="6998.37" y="-702.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7006.62" y="-702.2" font-family="monospace" font-size="14.00" fill="#006400">import /Game/Blueprints/Ratatouille/TresRemyBlueprintLibrary&#45;&gt;Default__TresRemyBlueprintLibrary_C</text>
+<text xml:space="preserve" text-anchor="start" x="6808.62" y="-688.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">148: </text>
+<text xml:space="preserve" text-anchor="start" x="6849.87" y="-688.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6882.87" y="-688.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7031.37" y="-688.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7039.62" y="-688.2" font-family="monospace" font-size="14.00" fill="#6a0080">IsDebug</text>
+<text xml:space="preserve" text-anchor="start" x="6808.62" y="-674.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">161: </text>
+<text xml:space="preserve" text-anchor="start" x="6849.87" y="-674.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6899.37" y="-674.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="6808.62" y="-660.2" font-family="monospace" font-size="14.00" fill="#555555">163: </text>
+<text xml:space="preserve" text-anchor="start" x="6849.87" y="-660.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="6948.87" y="-660.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6957.12" y="-660.2" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+<text xml:space="preserve" text-anchor="start" x="6808.62" y="-646.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">168: </text>
+<text xml:space="preserve" text-anchor="start" x="6849.87" y="-646.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6866.37" y="-646.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6998.37" y="-646.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7006.62" y="-646.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsDebug_ReturnValue</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_116&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge9" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_116:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="red" d="M7818.72,-711.75C7835.22,-711.75 7819.84,-653.86 7817.72,-637.5 7815.6,-621.15 7811.54,-617.75 7808.75,-601.5 7789.85,-491.27 7842.87,-176.43 7760.75,-100.5 7720.08,-62.89 5843.49,-117.49 5693.28,-70.87"/>
+<polygon fill="none" stroke="red" points="5695.27,-67.99 5685.01,-65.34 5691.37,-73.81 5695.27,-67.99"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_116&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_177 -->
+<g id="edge10" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_116&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_177:n</title>
+<path fill="none" stroke="green" d="M7330.94,-637.6C7332.5,-629.48 7333.7,-621.18 7334.31,-612.99"/>
+<polygon fill="green" stroke="green" points="7337.81,-613.14 7334.69,-603.01 7330.81,-612.87 7337.81,-613.14"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_329 -->
+<g id="node12" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_329</title>
+<polygon fill="#eeeeee" stroke="none" points="3929.88,-131.25 3929.88,-176.25 4455.62,-176.25 4455.62,-131.25 3929.88,-131.25"/>
+<polygon fill="none" stroke="black" points="3929.88,-153.75 3929.88,-176.25 4455.62,-176.25 4455.62,-153.75 3929.88,-153.75"/>
+<text xml:space="preserve" text-anchor="start" x="3932.88" y="-159.95" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 329</text>
+<polygon fill="none" stroke="black" points="3929.88,-131.25 3929.88,-153.75 4455.62,-153.75 4455.62,-131.25 3929.88,-131.25"/>
+<text xml:space="preserve" text-anchor="start" x="3932.88" y="-138.45" font-family="monospace" font-size="14.00" fill="#555555">329: </text>
+<text xml:space="preserve" text-anchor="start" x="3974.12" y="-138.45" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="4031.88" y="-138.45" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4040.12" y="-138.45" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_329&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge11" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_329&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="black" d="M4306.93,-127.3C4357.48,-117.11 4417.81,-106.41 4472.75,-100.5 4504.38,-97.1 5558.38,-98.03 5673.56,-69.71"/>
+<polygon fill="black" stroke="black" points="5675.1,-72.86 5682.4,-65.19 5671.91,-66.63 5675.1,-72.86"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_334 -->
+<g id="node13" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_334</title>
+<polygon fill="#eeeeee" stroke="none" points="3369.88,-131.25 3369.88,-176.25 3895.63,-176.25 3895.63,-131.25 3369.88,-131.25"/>
+<polygon fill="none" stroke="black" points="3369.88,-153.75 3369.88,-176.25 3895.63,-176.25 3895.63,-153.75 3369.88,-153.75"/>
+<text xml:space="preserve" text-anchor="start" x="3372.88" y="-159.95" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 334</text>
+<polygon fill="none" stroke="black" points="3369.88,-131.25 3369.88,-153.75 3895.63,-153.75 3895.63,-131.25 3369.88,-131.25"/>
+<text xml:space="preserve" text-anchor="start" x="3372.88" y="-138.45" font-family="monospace" font-size="14.00" fill="#555555">334: </text>
+<text xml:space="preserve" text-anchor="start" x="3414.13" y="-138.45" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="3471.88" y="-138.45" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3480.13" y="-138.45" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_334&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge12" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_334&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="black" d="M3745.89,-127.26C3796.64,-116.97 3857.41,-106.19 3912.75,-100.5 3959.55,-95.69 5535.63,-112.15 5674.06,-70.6"/>
+<polygon fill="black" stroke="black" points="5675.87,-73.6 5682.47,-65.31 5672.14,-67.68 5675.87,-73.6"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_662 -->
+<g id="node14" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_662</title>
+<polygon fill="#eeeeee" stroke="none" points="2809.88,-131.25 2809.88,-176.25 3335.62,-176.25 3335.62,-131.25 2809.88,-131.25"/>
+<polygon fill="none" stroke="black" points="2809.88,-153.75 2809.88,-176.25 3335.62,-176.25 3335.62,-153.75 2809.88,-153.75"/>
+<text xml:space="preserve" text-anchor="start" x="2812.88" y="-159.95" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 662</text>
+<polygon fill="none" stroke="black" points="2809.88,-131.25 2809.88,-153.75 3335.62,-153.75 3335.62,-131.25 2809.88,-131.25"/>
+<text xml:space="preserve" text-anchor="start" x="2812.88" y="-138.45" font-family="monospace" font-size="14.00" fill="#555555">662: </text>
+<text xml:space="preserve" text-anchor="start" x="2854.12" y="-138.45" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="2911.88" y="-138.45" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2920.12" y="-138.45" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_662&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge13" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_662&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="black" d="M3185.2,-127.27C3236.08,-116.91 3297.15,-106.08 3352.75,-100.5 3383.68,-97.4 5503.3,-96.91 5672.99,-68.24"/>
+<polygon fill="black" stroke="black" points="5674.02,-71.58 5682.32,-65 5671.73,-64.97 5674.02,-71.58"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_667 -->
+<g id="node15" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_667</title>
+<polygon fill="#eeeeee" stroke="none" points="4475,-345 4475,-499.5 5256.5,-499.5 5256.5,-345 4475,-345"/>
+<polygon fill="none" stroke="black" points="4475,-477 4475,-499.5 5256.5,-499.5 5256.5,-477 4475,-477"/>
+<text xml:space="preserve" text-anchor="start" x="4605.88" y="-483.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 667</text>
+<polygon fill="none" stroke="black" points="4475,-345 4475,-477 5256.5,-477 5256.5,-345 4475,-345"/>
+<text xml:space="preserve" text-anchor="start" x="4478" y="-461.7" font-family="monospace" font-size="14.00" fill="#555555">667: </text>
+<text xml:space="preserve" text-anchor="start" x="4519.25" y="-461.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="4577" y="-461.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4585.25" y="-461.7" font-family="monospace" font-size="14.00" fill="#555555">592</text>
+<text xml:space="preserve" text-anchor="start" x="4478" y="-447.7" font-family="monospace" font-size="14.00" fill="#555555">592: </text>
+<text xml:space="preserve" text-anchor="start" x="4519.25" y="-447.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="4478" y="-433.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">593: </text>
+<text xml:space="preserve" text-anchor="start" x="4519.25" y="-433.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4535.75" y="-433.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4667.75" y="-433.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4676" y="-433.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue5</text>
+<text xml:space="preserve" text-anchor="start" x="4478" y="-419.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">602: </text>
+<text xml:space="preserve" text-anchor="start" x="4519.25" y="-419.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4535.75" y="-419.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4478" y="-405.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">603: </text>
+<text xml:space="preserve" text-anchor="start" x="4519.25" y="-405.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4552.25" y="-405.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="4667.75" y="-405.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4676" y="-405.7" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__KismetSystemLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="4478" y="-391.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">624: </text>
+<text xml:space="preserve" text-anchor="start" x="4519.25" y="-391.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4552.25" y="-391.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4684.25" y="-391.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4692.5" y="-391.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetSystemLibrary&#45;&gt;IsValid</text>
+<text xml:space="preserve" text-anchor="start" x="4478" y="-377.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">633: </text>
+<text xml:space="preserve" text-anchor="start" x="4519.25" y="-377.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4568.75" y="-377.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4725.5" y="-377.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4733.75" y="-377.7" font-family="monospace" font-size="14.00" fill="#006400">Aqua_Axel_Cut05_ExecuteUbergraph_kg_06_camera_ms110_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4478" y="-363.7" font-family="monospace" font-size="14.00" fill="#555555">643: </text>
+<text xml:space="preserve" text-anchor="start" x="4519.25" y="-363.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="4618.25" y="-363.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4626.5" y="-363.7" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+<text xml:space="preserve" text-anchor="start" x="4478" y="-349.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">648: </text>
+<text xml:space="preserve" text-anchor="start" x="4519.25" y="-349.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4535.75" y="-349.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4667.75" y="-349.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4676" y="-349.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue5</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_667&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge14" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_667:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="red" d="M5265.38,-422.25C5275.35,-422.25 5273.86,-252.93 5274.75,-243 5280.42,-179.42 5246.85,-144.87 5292.75,-100.5 5352.54,-42.7 5653.56,-141.64 5681.65,-75.5"/>
+<polygon fill="none" stroke="red" points="5685.03,-76.47 5683.47,-65.99 5678.15,-75.15 5685.03,-76.47"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_667&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_657 -->
+<g id="edge15" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_667&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_657:n</title>
+<path fill="none" stroke="green" d="M4864.65,-341.13C4864.22,-304.26 4863.82,-259.61 4863.76,-218.28"/>
+<polygon fill="green" stroke="green" points="4867.26,-218.51 4863.75,-208.51 4860.26,-218.52 4867.26,-218.51"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_672 -->
+<g id="node16" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_672</title>
+<polygon fill="#eeeeee" stroke="none" points="2249.88,-131.25 2249.88,-176.25 2775.62,-176.25 2775.62,-131.25 2249.88,-131.25"/>
+<polygon fill="none" stroke="black" points="2249.88,-153.75 2249.88,-176.25 2775.62,-176.25 2775.62,-153.75 2249.88,-153.75"/>
+<text xml:space="preserve" text-anchor="start" x="2252.88" y="-159.95" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 672</text>
+<polygon fill="none" stroke="black" points="2249.88,-131.25 2249.88,-153.75 2775.62,-153.75 2775.62,-131.25 2249.88,-131.25"/>
+<text xml:space="preserve" text-anchor="start" x="2252.88" y="-138.45" font-family="monospace" font-size="14.00" fill="#555555">672: </text>
+<text xml:space="preserve" text-anchor="start" x="2294.12" y="-138.45" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="2351.88" y="-138.45" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2360.12" y="-138.45" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_672&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge16" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_672&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="black" d="M2624.86,-127.26C2675.8,-116.87 2737.02,-106.01 2792.75,-100.5 2831.29,-96.69 5484.07,-104.09 5673.14,-68.61"/>
+<polygon fill="black" stroke="black" points="5674.28,-71.92 5682.34,-65.05 5671.75,-65.4 5674.28,-71.92"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_677 -->
+<g id="node17" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_677</title>
+<polygon fill="#eeeeee" stroke="none" points="5292,-345 5292,-499.5 6073.5,-499.5 6073.5,-345 5292,-345"/>
+<polygon fill="none" stroke="black" points="5292,-477 5292,-499.5 6073.5,-499.5 6073.5,-477 5292,-477"/>
+<text xml:space="preserve" text-anchor="start" x="5422.88" y="-483.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 677</text>
+<polygon fill="none" stroke="black" points="5292,-345 5292,-477 6073.5,-477 6073.5,-345 5292,-345"/>
+<text xml:space="preserve" text-anchor="start" x="5295" y="-461.7" font-family="monospace" font-size="14.00" fill="#555555">677: </text>
+<text xml:space="preserve" text-anchor="start" x="5336.25" y="-461.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="5394" y="-461.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5402.25" y="-461.7" font-family="monospace" font-size="14.00" fill="#555555">445</text>
+<text xml:space="preserve" text-anchor="start" x="5295" y="-447.7" font-family="monospace" font-size="14.00" fill="#555555">445: </text>
+<text xml:space="preserve" text-anchor="start" x="5336.25" y="-447.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="5295" y="-433.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">446: </text>
+<text xml:space="preserve" text-anchor="start" x="5336.25" y="-433.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5352.75" y="-433.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="5484.75" y="-433.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5493" y="-433.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue4</text>
+<text xml:space="preserve" text-anchor="start" x="5295" y="-419.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">455: </text>
+<text xml:space="preserve" text-anchor="start" x="5336.25" y="-419.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5352.75" y="-419.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="5295" y="-405.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">456: </text>
+<text xml:space="preserve" text-anchor="start" x="5336.25" y="-405.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5369.25" y="-405.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="5484.75" y="-405.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5493" y="-405.7" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__KismetSystemLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="5295" y="-391.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">477: </text>
+<text xml:space="preserve" text-anchor="start" x="5336.25" y="-391.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5369.25" y="-391.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="5501.25" y="-391.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5509.5" y="-391.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetSystemLibrary&#45;&gt;IsValid</text>
+<text xml:space="preserve" text-anchor="start" x="5295" y="-377.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">486: </text>
+<text xml:space="preserve" text-anchor="start" x="5336.25" y="-377.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5385.75" y="-377.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="5542.5" y="-377.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5550.75" y="-377.7" font-family="monospace" font-size="14.00" fill="#006400">Aqua_Axel_Cut04_ExecuteUbergraph_kg_06_camera_ms110_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="5295" y="-363.7" font-family="monospace" font-size="14.00" fill="#555555">496: </text>
+<text xml:space="preserve" text-anchor="start" x="5336.25" y="-363.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="5435.25" y="-363.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5443.5" y="-363.7" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+<text xml:space="preserve" text-anchor="start" x="5295" y="-349.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">501: </text>
+<text xml:space="preserve" text-anchor="start" x="5336.25" y="-349.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5352.75" y="-349.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="5484.75" y="-349.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5493" y="-349.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue4</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_677&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge17" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_677:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="red" d="M6082.38,-422.25C6087.97,-422.25 6091.19,-118.04 6074.75,-100.5 6017.86,-39.83 5714.21,-141.38 5685.87,-75.48"/>
+<polygon fill="none" stroke="red" points="5689.37,-75.14 5684.04,-65.99 5682.5,-76.47 5689.37,-75.14"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_677&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_510 -->
+<g id="edge18" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_677&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_510:n</title>
+<path fill="none" stroke="green" d="M5683.29,-341.19C5683.51,-302.74 5683.71,-255.66 5683.75,-212.19"/>
+<polygon fill="green" stroke="green" points="5687.25,-212.44 5683.75,-202.44 5680.25,-212.44 5687.25,-212.44"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_682 -->
+<g id="node18" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_682</title>
+<polygon fill="#eeeeee" stroke="none" points="1689.88,-131.25 1689.88,-176.25 2215.62,-176.25 2215.62,-131.25 1689.88,-131.25"/>
+<polygon fill="none" stroke="black" points="1689.88,-153.75 1689.88,-176.25 2215.62,-176.25 2215.62,-153.75 1689.88,-153.75"/>
+<text xml:space="preserve" text-anchor="start" x="1692.88" y="-159.95" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 682</text>
+<polygon fill="none" stroke="black" points="1689.88,-131.25 1689.88,-153.75 2215.62,-153.75 2215.62,-131.25 1689.88,-131.25"/>
+<text xml:space="preserve" text-anchor="start" x="1692.88" y="-138.45" font-family="monospace" font-size="14.00" fill="#555555">682: </text>
+<text xml:space="preserve" text-anchor="start" x="1734.12" y="-138.45" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="1791.88" y="-138.45" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1800.12" y="-138.45" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_682&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge19" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_682&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="black" d="M2064.51,-127.28C2115.52,-116.85 2176.89,-105.96 2232.75,-100.5 2278.92,-95.99 5467.88,-111.39 5673.37,-68.94"/>
+<polygon fill="black" stroke="black" points="5674.54,-72.24 5682.36,-65.09 5671.79,-65.81 5674.54,-72.24"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_687 -->
+<g id="node19" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_687</title>
+<polygon fill="#eeeeee" stroke="none" points="6108,-345 6108,-499.5 6889.5,-499.5 6889.5,-345 6108,-345"/>
+<polygon fill="none" stroke="black" points="6108,-477 6108,-499.5 6889.5,-499.5 6889.5,-477 6108,-477"/>
+<text xml:space="preserve" text-anchor="start" x="6238.88" y="-483.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 687</text>
+<polygon fill="none" stroke="black" points="6108,-345 6108,-477 6889.5,-477 6889.5,-345 6108,-345"/>
+<text xml:space="preserve" text-anchor="start" x="6111" y="-461.7" font-family="monospace" font-size="14.00" fill="#555555">687: </text>
+<text xml:space="preserve" text-anchor="start" x="6152.25" y="-461.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="6210" y="-461.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6218.25" y="-461.7" font-family="monospace" font-size="14.00" fill="#555555">339</text>
+<text xml:space="preserve" text-anchor="start" x="6111" y="-447.7" font-family="monospace" font-size="14.00" fill="#555555">339: </text>
+<text xml:space="preserve" text-anchor="start" x="6152.25" y="-447.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="6111" y="-433.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">340: </text>
+<text xml:space="preserve" text-anchor="start" x="6152.25" y="-433.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6168.75" y="-433.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6300.75" y="-433.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6309" y="-433.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue3</text>
+<text xml:space="preserve" text-anchor="start" x="6111" y="-419.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">349: </text>
+<text xml:space="preserve" text-anchor="start" x="6152.25" y="-419.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6168.75" y="-419.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6111" y="-405.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">350: </text>
+<text xml:space="preserve" text-anchor="start" x="6152.25" y="-405.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6185.25" y="-405.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="6300.75" y="-405.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6309" y="-405.7" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__KismetSystemLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="6111" y="-391.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">371: </text>
+<text xml:space="preserve" text-anchor="start" x="6152.25" y="-391.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6185.25" y="-391.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6317.25" y="-391.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6325.5" y="-391.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetSystemLibrary&#45;&gt;IsValid</text>
+<text xml:space="preserve" text-anchor="start" x="6111" y="-377.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">380: </text>
+<text xml:space="preserve" text-anchor="start" x="6152.25" y="-377.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6201.75" y="-377.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6358.5" y="-377.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6366.75" y="-377.7" font-family="monospace" font-size="14.00" fill="#006400">Aqua_Axel_Cut03_ExecuteUbergraph_kg_06_camera_ms110_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="6111" y="-363.7" font-family="monospace" font-size="14.00" fill="#555555">390: </text>
+<text xml:space="preserve" text-anchor="start" x="6152.25" y="-363.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="6251.25" y="-363.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6259.5" y="-363.7" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+<text xml:space="preserve" text-anchor="start" x="6111" y="-349.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">395: </text>
+<text xml:space="preserve" text-anchor="start" x="6152.25" y="-349.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6168.75" y="-349.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6300.75" y="-349.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6309" y="-349.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue3</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_687&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge20" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_687:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="red" d="M6898.38,-422.25C6907.32,-422.25 6901.01,-106.88 6894.75,-100.5 6849.81,-54.72 5790.41,-124.65 5691.19,-73.03"/>
+<polygon fill="none" stroke="red" points="5693.96,-70.88 5684.74,-65.64 5688.68,-75.48 5693.96,-70.88"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_687&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_404 -->
+<g id="edge21" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_687&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_404:n</title>
+<path fill="none" stroke="green" d="M6501.44,-341.2C6502.53,-302.75 6503.57,-255.67 6503.73,-212.19"/>
+<polygon fill="green" stroke="green" points="6507.23,-212.45 6503.75,-202.44 6500.23,-212.43 6507.23,-212.45"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_10 -->
+<g id="node20" class="node">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_10</title>
+<polygon fill="#eeeeee" stroke="none" points="7826.12,-352 7826.12,-492.5 8599.38,-492.5 8599.38,-352 7826.12,-352"/>
+<polygon fill="none" stroke="black" points="7826.12,-470 7826.12,-492.5 8599.38,-492.5 8599.38,-470 7826.12,-470"/>
+<text xml:space="preserve" text-anchor="start" x="7957" y="-476.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::ExecuteUbergraph_kg_06_camera_ms110 @ 10</text>
+<polygon fill="none" stroke="black" points="7826.12,-352 7826.12,-470 8599.38,-470 8599.38,-352 7826.12,-352"/>
+<text xml:space="preserve" text-anchor="start" x="7829.12" y="-454.7" font-family="monospace" font-size="14.00" fill="#555555">10: </text>
+<text xml:space="preserve" text-anchor="start" x="7862.12" y="-454.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="7829.12" y="-440.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">11: </text>
+<text xml:space="preserve" text-anchor="start" x="7862.12" y="-440.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7878.62" y="-440.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="8010.62" y="-440.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8018.88" y="-440.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="7829.12" y="-426.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="7862.12" y="-426.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7878.62" y="-426.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="7829.12" y="-412.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">21: </text>
+<text xml:space="preserve" text-anchor="start" x="7862.12" y="-412.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7895.12" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="8010.62" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8018.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__KismetSystemLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="7829.12" y="-398.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">42: </text>
+<text xml:space="preserve" text-anchor="start" x="7862.12" y="-398.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7895.12" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="8027.12" y="-398.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8035.38" y="-398.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetSystemLibrary&#45;&gt;IsValid</text>
+<text xml:space="preserve" text-anchor="start" x="7829.12" y="-384.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">51: </text>
+<text xml:space="preserve" text-anchor="start" x="7862.12" y="-384.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7911.62" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="8068.38" y="-384.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8076.62" y="-384.7" font-family="monospace" font-size="14.00" fill="#006400">Aqua_Axel_Cut02_ExecuteUbergraph_kg_06_camera_ms110_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="7829.12" y="-370.7" font-family="monospace" font-size="14.00" fill="#555555">61: </text>
+<text xml:space="preserve" text-anchor="start" x="7862.12" y="-370.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="7961.12" y="-370.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7969.38" y="-370.7" font-family="monospace" font-size="14.00" fill="#555555">692</text>
+<text xml:space="preserve" text-anchor="start" x="7829.12" y="-356.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">66: </text>
+<text xml:space="preserve" text-anchor="start" x="7862.12" y="-356.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7878.62" y="-356.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="8010.62" y="-356.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8018.88" y="-356.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsValid_ReturnValue2</text>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_10&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge22" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_10:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="red" d="M8608.25,-422.25C8637.33,-422.25 8676.16,-185.02 8584.75,-100.5 8527.49,-47.55 5864.02,-138.85 5692.42,-71.74"/>
+<polygon fill="none" stroke="red" points="5694.83,-69.2 5684.91,-65.47 5690.34,-74.57 5694.83,-69.2"/>
+</g>
+<!-- ExecuteUbergraph_kg_06_camera_ms110__block_10&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_75 -->
+<g id="edge23" class="edge">
+<title>ExecuteUbergraph_kg_06_camera_ms110__block_10&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_75:n</title>
+<path fill="none" stroke="green" d="M8205.27,-348.12C8201.8,-308.52 8198.32,-258.37 8197.81,-212.18"/>
+<polygon fill="green" stroke="green" points="8201.31,-212.34 8197.76,-202.36 8194.32,-212.38 8201.31,-212.34"/>
+</g>
+<!-- InpActEvt_Five_K2Node_InputKeyEvent_1 -->
+<g id="node21" class="node">
+<title>InpActEvt_Five_K2Node_InputKeyEvent_1</title>
+<polygon fill="#ffd4d4" stroke="none" points="6598.88,-982.5 6598.88,-1030.5 7058.62,-1030.5 7058.62,-982.5 6598.88,-982.5"/>
+<polygon fill="none" stroke="black" points="6598.88,-982.5 6598.88,-1030.5 7058.62,-1030.5 7058.62,-982.5 6598.88,-982.5"/>
+<text xml:space="preserve" text-anchor="start" x="6601.88" y="-1015.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="6667.88" y="-1015.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6676.12" y="-1015.2" font-family="monospace" font-size="14.00" fill="#6a0080">InpActEvt_Five_K2Node_InputKeyEvent_1</text>
+<text xml:space="preserve" text-anchor="start" x="6601.88" y="-1001.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6618.38" y="-1001.2" font-family="monospace" font-size="14.00" fill="#996300">Struct</text>
+<text xml:space="preserve" text-anchor="start" x="6667.88" y="-1001.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="6692.62" y="-1001.2" font-family="monospace" font-size="14.00" fill="#006400">Key</text>
+<text xml:space="preserve" text-anchor="start" x="6601.88" y="-987.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6634.88" y="-987.2" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- InpActEvt_Five_K2Node_InputKeyEvent_1__block_0 -->
+<g id="node22" class="node">
+<title>InpActEvt_Five_K2Node_InputKeyEvent_1__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="6322.5,-826 6322.5,-938.5 7335,-938.5 7335,-826 6322.5,-826"/>
+<polygon fill="none" stroke="black" points="6322.5,-916 6322.5,-938.5 7335,-938.5 7335,-916 6322.5,-916"/>
+<text xml:space="preserve" text-anchor="start" x="6568.88" y="-922.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::InpActEvt_Five_K2Node_InputKeyEvent_1 @ 0</text>
+<polygon fill="none" stroke="black" points="6322.5,-826 6322.5,-916 7335,-916 7335,-826 6322.5,-826"/>
+<text xml:space="preserve" text-anchor="start" x="6325.5" y="-900.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="6350.25" y="-900.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetValueOnPersistentFrame</text>
+<text xml:space="preserve" text-anchor="start" x="6581.25" y="-900.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6589.5" y="-900.7" font-family="monospace" font-size="14.00" fill="#006400">export kg_06_camera_ms110_C&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110&#45;&gt;K2Node_InputKeyEvent_Key</text>
+<text xml:space="preserve" text-anchor="start" x="6325.5" y="-886.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">9: </text>
+<text xml:space="preserve" text-anchor="start" x="6350.25" y="-886.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6366.75" y="-886.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6498.75" y="-886.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6507" y="-886.7" font-family="monospace" font-size="14.00" fill="#006400">Key</text>
+<text xml:space="preserve" text-anchor="start" x="6325.5" y="-872.7" font-family="monospace" font-size="14.00" fill="#555555">18: </text>
+<text xml:space="preserve" text-anchor="start" x="6358.5" y="-872.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6507" y="-872.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6515.25" y="-872.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="6325.5" y="-858.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">31: </text>
+<text xml:space="preserve" text-anchor="start" x="6358.5" y="-858.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6375" y="-858.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="6465.75" y="-858.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6474" y="-858.7" font-family="monospace" font-size="14.00" fill="#0000cd">116</text>
+<text xml:space="preserve" text-anchor="start" x="6325.5" y="-844.7" font-family="monospace" font-size="14.00" fill="#555555">37: </text>
+<text xml:space="preserve" text-anchor="start" x="6358.5" y="-844.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="6325.5" y="-830.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">38: </text>
+<text xml:space="preserve" text-anchor="start" x="6358.5" y="-830.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6375" y="-830.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- InpActEvt_Five_K2Node_InputKeyEvent_1&#45;&gt;InpActEvt_Five_K2Node_InputKeyEvent_1__block_0 -->
+<g id="edge24" class="edge">
+<title>InpActEvt_Five_K2Node_InputKeyEvent_1&#45;&gt;InpActEvt_Five_K2Node_InputKeyEvent_1__block_0:n</title>
+<path fill="none" stroke="black" d="M6828.75,-978.52C6828.75,-970.86 6828.75,-962.29 6828.75,-953.84"/>
+<polygon fill="black" stroke="black" points="6832.25,-954.01 6828.75,-944.01 6825.25,-954.01 6832.25,-954.01"/>
+</g>
+<!-- InpActEvt_Five_K2Node_InputKeyEvent_1__block_0&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_116 -->
+<g id="edge25" class="edge">
+<title>InpActEvt_Five_K2Node_InputKeyEvent_1__block_0:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_116:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M7343.84,-882.25C7370.62,-882.25 7353.14,-846.72 7342.84,-822 7336.27,-806.21 7319.19,-806.59 7311.55,-797.61"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="7308.51,-788.32 7315.89,-796.42 7309.78,-790.6 7312.09,-797.67 7311.61,-797.82 7311.14,-797.98 7308.83,-790.91 7307.34,-799.22 7308.51,-788.32"/>
+</g>
+<!-- K2Node_MatineeController_11_Played -->
+<g id="node23" class="node">
+<title>K2Node_MatineeController_11_Played</title>
+<polygon fill="#ffd4d4" stroke="none" points="3754.38,-700.5 3754.38,-723 4115.12,-723 4115.12,-700.5 3754.38,-700.5"/>
+<polygon fill="none" stroke="black" points="3754.38,-700.5 3754.38,-723 4115.12,-723 4115.12,-700.5 3754.38,-700.5"/>
+<text xml:space="preserve" text-anchor="start" x="3757.38" y="-707.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="3823.38" y="-707.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3831.62" y="-707.7" font-family="monospace" font-size="14.00" fill="#6a0080">K2Node_MatineeController_11_Played</text>
+</g>
+<!-- K2Node_MatineeController_11_Played__block_0 -->
+<g id="node24" class="node">
+<title>K2Node_MatineeController_11_Played__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="3684.25,-380 3684.25,-464.5 4185.25,-464.5 4185.25,-380 3684.25,-380"/>
+<polygon fill="none" stroke="black" points="3684.25,-442 3684.25,-464.5 4185.25,-464.5 4185.25,-442 3684.25,-442"/>
+<text xml:space="preserve" text-anchor="start" x="3687.25" y="-448.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::K2Node_MatineeController_11_Played @ 0</text>
+<polygon fill="none" stroke="black" points="3684.25,-380 3684.25,-442 4185.25,-442 4185.25,-380 3684.25,-380"/>
+<text xml:space="preserve" text-anchor="start" x="3687.25" y="-426.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="3712" y="-426.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3860.5" y="-426.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3868.75" y="-426.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="3687.25" y="-412.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="3720.25" y="-412.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3736.75" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="3827.5" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3835.75" y="-412.7" font-family="monospace" font-size="14.00" fill="#0000cd">329</text>
+<text xml:space="preserve" text-anchor="start" x="3687.25" y="-398.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="3720.25" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="3687.25" y="-384.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="3720.25" y="-384.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3736.75" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- K2Node_MatineeController_11_Played&#45;&gt;K2Node_MatineeController_11_Played__block_0 -->
+<g id="edge26" class="edge">
+<title>K2Node_MatineeController_11_Played&#45;&gt;K2Node_MatineeController_11_Played__block_0:n</title>
+<path fill="none" stroke="black" d="M3934.75,-693.78C3934.75,-656.13 3934.75,-562.52 3934.75,-480.8"/>
+<polygon fill="black" stroke="black" points="3938.25,-480.86 3934.75,-470.86 3931.25,-480.86 3938.25,-480.86"/>
+</g>
+<!-- K2Node_MatineeController_11_Played__block_0&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_329 -->
+<g id="edge27" class="edge">
+<title>K2Node_MatineeController_11_Played__block_0:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_329:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M4194,-422.25C4297.15,-422.25 4200.7,-298.24 4193.2,-193.36"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="4192.84,-183.43 4197.7,-193.26 4193.43,-185.97 4193.71,-193.41 4193.21,-193.42 4192.71,-193.44 4192.43,-186.01 4188.71,-193.59 4192.84,-183.43"/>
+</g>
+<!-- K2Node_MatineeController_11_Finished -->
+<g id="node25" class="node">
+<title>K2Node_MatineeController_11_Finished</title>
+<polygon fill="#ffd4d4" stroke="none" points="3178.12,-700.5 3178.12,-723 3555.38,-723 3555.38,-700.5 3178.12,-700.5"/>
+<polygon fill="none" stroke="black" points="3178.12,-700.5 3178.12,-723 3555.38,-723 3555.38,-700.5 3178.12,-700.5"/>
+<text xml:space="preserve" text-anchor="start" x="3181.12" y="-707.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="3247.12" y="-707.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3255.38" y="-707.7" font-family="monospace" font-size="14.00" fill="#6a0080">K2Node_MatineeController_11_Finished</text>
+</g>
+<!-- K2Node_MatineeController_11_Finished__block_0 -->
+<g id="node26" class="node">
+<title>K2Node_MatineeController_11_Finished__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="3108,-380 3108,-464.5 3625.5,-464.5 3625.5,-380 3108,-380"/>
+<polygon fill="none" stroke="black" points="3108,-442 3108,-464.5 3625.5,-464.5 3625.5,-442 3108,-442"/>
+<text xml:space="preserve" text-anchor="start" x="3111" y="-448.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::K2Node_MatineeController_11_Finished @ 0</text>
+<polygon fill="none" stroke="black" points="3108,-380 3108,-442 3625.5,-442 3625.5,-380 3108,-380"/>
+<text xml:space="preserve" text-anchor="start" x="3111" y="-426.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="3135.75" y="-426.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3284.25" y="-426.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3292.5" y="-426.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="3111" y="-412.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="3144" y="-412.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3160.5" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="3251.25" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3259.5" y="-412.7" font-family="monospace" font-size="14.00" fill="#0000cd">334</text>
+<text xml:space="preserve" text-anchor="start" x="3111" y="-398.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="3144" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="3111" y="-384.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="3144" y="-384.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3160.5" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- K2Node_MatineeController_11_Finished&#45;&gt;K2Node_MatineeController_11_Finished__block_0 -->
+<g id="edge28" class="edge">
+<title>K2Node_MatineeController_11_Finished&#45;&gt;K2Node_MatineeController_11_Finished__block_0:n</title>
+<path fill="none" stroke="black" d="M3366.75,-693.78C3366.75,-656.15 3366.75,-562.57 3366.75,-480.88"/>
+<polygon fill="black" stroke="black" points="3370.25,-480.95 3366.75,-470.95 3363.25,-480.95 3370.25,-480.95"/>
+</g>
+<!-- K2Node_MatineeController_11_Finished__block_0&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_334 -->
+<g id="edge29" class="edge">
+<title>K2Node_MatineeController_11_Finished__block_0:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_334:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M3634.25,-422.25C3684.3,-422.25 3639.59,-258.7 3633.43,-193.36"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="3632.88,-183.43 3637.93,-193.17 3633.52,-185.96 3633.93,-193.39 3633.43,-193.41 3632.94,-193.44 3632.53,-186.02 3628.94,-193.66 3632.88,-183.43"/>
+</g>
+<!-- K2Node_MatineeController_7_Played -->
+<g id="node27" class="node">
+<title>K2Node_MatineeController_7_Played</title>
+<polygon fill="#ffd4d4" stroke="none" points="2642.5,-700.5 2642.5,-723 2995,-723 2995,-700.5 2642.5,-700.5"/>
+<polygon fill="none" stroke="black" points="2642.5,-700.5 2642.5,-723 2995,-723 2995,-700.5 2642.5,-700.5"/>
+<text xml:space="preserve" text-anchor="start" x="2645.5" y="-707.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="2711.5" y="-707.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2719.75" y="-707.7" font-family="monospace" font-size="14.00" fill="#6a0080">K2Node_MatineeController_7_Played</text>
+</g>
+<!-- K2Node_MatineeController_7_Played__block_0 -->
+<g id="node28" class="node">
+<title>K2Node_MatineeController_7_Played__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="2572.38,-380 2572.38,-464.5 3065.12,-464.5 3065.12,-380 2572.38,-380"/>
+<polygon fill="none" stroke="black" points="2572.38,-442 2572.38,-464.5 3065.12,-464.5 3065.12,-442 2572.38,-442"/>
+<text xml:space="preserve" text-anchor="start" x="2575.38" y="-448.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::K2Node_MatineeController_7_Played @ 0</text>
+<polygon fill="none" stroke="black" points="2572.38,-380 2572.38,-442 3065.12,-442 3065.12,-380 2572.38,-380"/>
+<text xml:space="preserve" text-anchor="start" x="2575.38" y="-426.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="2600.12" y="-426.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2748.62" y="-426.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2756.88" y="-426.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="2575.38" y="-412.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="2608.38" y="-412.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2624.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="2715.62" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2723.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#0000cd">662</text>
+<text xml:space="preserve" text-anchor="start" x="2575.38" y="-398.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="2608.38" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="2575.38" y="-384.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="2608.38" y="-384.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2624.88" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- K2Node_MatineeController_7_Played&#45;&gt;K2Node_MatineeController_7_Played__block_0 -->
+<g id="edge30" class="edge">
+<title>K2Node_MatineeController_7_Played&#45;&gt;K2Node_MatineeController_7_Played__block_0:n</title>
+<path fill="none" stroke="black" d="M2818.75,-693.77C2818.75,-656.12 2818.75,-562.48 2818.75,-480.73"/>
+<polygon fill="black" stroke="black" points="2822.25,-480.79 2818.75,-470.79 2815.25,-480.79 2822.25,-480.79"/>
+</g>
+<!-- K2Node_MatineeController_7_Played__block_0&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_662 -->
+<g id="edge31" class="edge">
+<title>K2Node_MatineeController_7_Played__block_0:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_662:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M3073.88,-422.25C3098.18,-422.25 3077.51,-246.13 3073.42,-193.15"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="3072.88,-183.43 3077.93,-193.17 3073.52,-185.96 3073.93,-193.39 3073.43,-193.41 3072.93,-193.44 3072.53,-186.02 3068.94,-193.66 3072.88,-183.43"/>
+</g>
+<!-- K2Node_MatineeController_7_Finished -->
+<g id="node29" class="node">
+<title>K2Node_MatineeController_7_Finished</title>
+<polygon fill="#ffd4d4" stroke="none" points="4419.25,-871 4419.25,-893.5 4788.25,-893.5 4788.25,-871 4419.25,-871"/>
+<polygon fill="none" stroke="black" points="4419.25,-871 4419.25,-893.5 4788.25,-893.5 4788.25,-871 4419.25,-871"/>
+<text xml:space="preserve" text-anchor="start" x="4422.25" y="-878.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="4488.25" y="-878.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4496.5" y="-878.2" font-family="monospace" font-size="14.00" fill="#6a0080">K2Node_MatineeController_7_Finished</text>
+</g>
+<!-- K2Node_MatineeController_7_Finished__block_0 -->
+<g id="node30" class="node">
+<title>K2Node_MatineeController_7_Finished__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="4349.12,-669.5 4349.12,-754 4858.38,-754 4858.38,-669.5 4349.12,-669.5"/>
+<polygon fill="none" stroke="black" points="4349.12,-731.5 4349.12,-754 4858.38,-754 4858.38,-731.5 4349.12,-731.5"/>
+<text xml:space="preserve" text-anchor="start" x="4352.12" y="-737.7" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::K2Node_MatineeController_7_Finished @ 0</text>
+<polygon fill="none" stroke="black" points="4349.12,-669.5 4349.12,-731.5 4858.38,-731.5 4858.38,-669.5 4349.12,-669.5"/>
+<text xml:space="preserve" text-anchor="start" x="4352.12" y="-716.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="4376.88" y="-716.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4525.38" y="-716.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4533.62" y="-716.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="4352.12" y="-702.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="4385.12" y="-702.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4401.62" y="-702.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="4492.38" y="-702.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4500.62" y="-702.2" font-family="monospace" font-size="14.00" fill="#0000cd">667</text>
+<text xml:space="preserve" text-anchor="start" x="4352.12" y="-688.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="4385.12" y="-688.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="4352.12" y="-674.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="4385.12" y="-674.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4401.62" y="-674.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- K2Node_MatineeController_7_Finished&#45;&gt;K2Node_MatineeController_7_Finished__block_0 -->
+<g id="edge32" class="edge">
+<title>K2Node_MatineeController_7_Finished&#45;&gt;K2Node_MatineeController_7_Finished__block_0:n</title>
+<path fill="none" stroke="black" d="M4603.75,-864.63C4603.75,-843.39 4603.75,-805.18 4603.75,-770.14"/>
+<polygon fill="black" stroke="black" points="4607.25,-770.42 4603.75,-760.42 4600.25,-770.42 4607.25,-770.42"/>
+</g>
+<!-- K2Node_MatineeController_7_Finished__block_0&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_667 -->
+<g id="edge33" class="edge">
+<title>K2Node_MatineeController_7_Finished__block_0:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_667:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M4867.13,-711.75C4955.29,-711.75 4873.62,-606.39 4866.27,-516.54"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="4865.85,-506.7 4870.77,-516.5 4866.46,-509.24 4866.77,-516.67 4866.27,-516.69 4865.78,-516.71 4865.46,-509.28 4861.78,-516.88 4865.85,-506.7"/>
+</g>
+<!-- K2Node_MatineeController_4_Played -->
+<g id="node31" class="node">
+<title>K2Node_MatineeController_4_Played</title>
+<polygon fill="#ffd4d4" stroke="none" points="2082.5,-700.5 2082.5,-723 2435,-723 2435,-700.5 2082.5,-700.5"/>
+<polygon fill="none" stroke="black" points="2082.5,-700.5 2082.5,-723 2435,-723 2435,-700.5 2082.5,-700.5"/>
+<text xml:space="preserve" text-anchor="start" x="2085.5" y="-707.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="2151.5" y="-707.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2159.75" y="-707.7" font-family="monospace" font-size="14.00" fill="#6a0080">K2Node_MatineeController_4_Played</text>
+</g>
+<!-- K2Node_MatineeController_4_Played__block_0 -->
+<g id="node32" class="node">
+<title>K2Node_MatineeController_4_Played__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="2012.38,-380 2012.38,-464.5 2505.12,-464.5 2505.12,-380 2012.38,-380"/>
+<polygon fill="none" stroke="black" points="2012.38,-442 2012.38,-464.5 2505.12,-464.5 2505.12,-442 2012.38,-442"/>
+<text xml:space="preserve" text-anchor="start" x="2015.38" y="-448.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::K2Node_MatineeController_4_Played @ 0</text>
+<polygon fill="none" stroke="black" points="2012.38,-380 2012.38,-442 2505.12,-442 2505.12,-380 2012.38,-380"/>
+<text xml:space="preserve" text-anchor="start" x="2015.38" y="-426.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="2040.12" y="-426.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2188.62" y="-426.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2196.88" y="-426.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="2015.38" y="-412.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="2048.38" y="-412.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2064.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="2155.62" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2163.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#0000cd">672</text>
+<text xml:space="preserve" text-anchor="start" x="2015.38" y="-398.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="2048.38" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="2015.38" y="-384.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="2048.38" y="-384.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2064.88" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- K2Node_MatineeController_4_Played&#45;&gt;K2Node_MatineeController_4_Played__block_0 -->
+<g id="edge34" class="edge">
+<title>K2Node_MatineeController_4_Played&#45;&gt;K2Node_MatineeController_4_Played__block_0:n</title>
+<path fill="none" stroke="black" d="M2258.75,-693.77C2258.75,-656.12 2258.75,-562.48 2258.75,-480.73"/>
+<polygon fill="black" stroke="black" points="2262.25,-480.79 2258.75,-470.79 2255.25,-480.79 2262.25,-480.79"/>
+</g>
+<!-- K2Node_MatineeController_4_Played__block_0&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_672 -->
+<g id="edge35" class="edge">
+<title>K2Node_MatineeController_4_Played__block_0:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_672:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M2513.88,-422.25C2563.94,-422.25 2519.54,-258.7 2513.43,-193.36"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="2512.88,-183.43 2517.92,-193.17 2513.52,-185.96 2513.93,-193.39 2513.43,-193.41 2512.93,-193.44 2512.52,-186.02 2508.94,-193.66 2512.88,-183.43"/>
+</g>
+<!-- K2Node_MatineeController_4_Finished -->
+<g id="node33" class="node">
+<title>K2Node_MatineeController_4_Finished</title>
+<polygon fill="#ffd4d4" stroke="none" points="5236.25,-871 5236.25,-893.5 5605.25,-893.5 5605.25,-871 5236.25,-871"/>
+<polygon fill="none" stroke="black" points="5236.25,-871 5236.25,-893.5 5605.25,-893.5 5605.25,-871 5236.25,-871"/>
+<text xml:space="preserve" text-anchor="start" x="5239.25" y="-878.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="5305.25" y="-878.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5313.5" y="-878.2" font-family="monospace" font-size="14.00" fill="#6a0080">K2Node_MatineeController_4_Finished</text>
+</g>
+<!-- K2Node_MatineeController_4_Finished__block_0 -->
+<g id="node34" class="node">
+<title>K2Node_MatineeController_4_Finished__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="5166.12,-669.5 5166.12,-754 5675.38,-754 5675.38,-669.5 5166.12,-669.5"/>
+<polygon fill="none" stroke="black" points="5166.12,-731.5 5166.12,-754 5675.38,-754 5675.38,-731.5 5166.12,-731.5"/>
+<text xml:space="preserve" text-anchor="start" x="5169.12" y="-737.7" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::K2Node_MatineeController_4_Finished @ 0</text>
+<polygon fill="none" stroke="black" points="5166.12,-669.5 5166.12,-731.5 5675.38,-731.5 5675.38,-669.5 5166.12,-669.5"/>
+<text xml:space="preserve" text-anchor="start" x="5169.12" y="-716.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="5193.88" y="-716.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="5342.38" y="-716.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5350.62" y="-716.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="5169.12" y="-702.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="5202.12" y="-702.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5218.62" y="-702.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="5309.38" y="-702.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5317.62" y="-702.2" font-family="monospace" font-size="14.00" fill="#0000cd">677</text>
+<text xml:space="preserve" text-anchor="start" x="5169.12" y="-688.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="5202.12" y="-688.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="5169.12" y="-674.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="5202.12" y="-674.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5218.62" y="-674.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- K2Node_MatineeController_4_Finished&#45;&gt;K2Node_MatineeController_4_Finished__block_0 -->
+<g id="edge36" class="edge">
+<title>K2Node_MatineeController_4_Finished&#45;&gt;K2Node_MatineeController_4_Finished__block_0:n</title>
+<path fill="none" stroke="black" d="M5420.75,-864.63C5420.75,-843.39 5420.75,-805.18 5420.75,-770.14"/>
+<polygon fill="black" stroke="black" points="5424.25,-770.42 5420.75,-760.42 5417.25,-770.42 5424.25,-770.42"/>
+</g>
+<!-- K2Node_MatineeController_4_Finished__block_0&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_677 -->
+<g id="edge37" class="edge">
+<title>K2Node_MatineeController_4_Finished__block_0:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_677:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M5684.13,-711.75C5772.29,-711.75 5690.62,-606.39 5683.27,-516.54"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="5682.85,-506.7 5687.77,-516.5 5683.46,-509.24 5683.77,-516.67 5683.27,-516.69 5682.78,-516.71 5682.46,-509.28 5678.78,-516.88 5682.85,-506.7"/>
+</g>
+<!-- K2Node_MatineeController_2_Played -->
+<g id="node35" class="node">
+<title>K2Node_MatineeController_2_Played</title>
+<polygon fill="#ffd4d4" stroke="none" points="1539.5,-700.5 1539.5,-723 1892,-723 1892,-700.5 1539.5,-700.5"/>
+<polygon fill="none" stroke="black" points="1539.5,-700.5 1539.5,-723 1892,-723 1892,-700.5 1539.5,-700.5"/>
+<text xml:space="preserve" text-anchor="start" x="1542.5" y="-707.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="1608.5" y="-707.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1616.75" y="-707.7" font-family="monospace" font-size="14.00" fill="#6a0080">K2Node_MatineeController_2_Played</text>
+</g>
+<!-- K2Node_MatineeController_2_Played__block_0 -->
+<g id="node36" class="node">
+<title>K2Node_MatineeController_2_Played__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="1469.38,-380 1469.38,-464.5 1962.12,-464.5 1962.12,-380 1469.38,-380"/>
+<polygon fill="none" stroke="black" points="1469.38,-442 1469.38,-464.5 1962.12,-464.5 1962.12,-442 1469.38,-442"/>
+<text xml:space="preserve" text-anchor="start" x="1472.38" y="-448.2" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::K2Node_MatineeController_2_Played @ 0</text>
+<polygon fill="none" stroke="black" points="1469.38,-380 1469.38,-442 1962.12,-442 1962.12,-380 1469.38,-380"/>
+<text xml:space="preserve" text-anchor="start" x="1472.38" y="-426.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="1497.12" y="-426.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1645.62" y="-426.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1653.88" y="-426.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="1472.38" y="-412.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="1505.38" y="-412.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1521.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1612.62" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1620.88" y="-412.7" font-family="monospace" font-size="14.00" fill="#0000cd">682</text>
+<text xml:space="preserve" text-anchor="start" x="1472.38" y="-398.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="1505.38" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="1472.38" y="-384.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="1505.38" y="-384.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1521.88" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- K2Node_MatineeController_2_Played&#45;&gt;K2Node_MatineeController_2_Played__block_0 -->
+<g id="edge38" class="edge">
+<title>K2Node_MatineeController_2_Played&#45;&gt;K2Node_MatineeController_2_Played__block_0:n</title>
+<path fill="none" stroke="black" d="M1715.75,-693.77C1715.75,-656.12 1715.75,-562.48 1715.75,-480.73"/>
+<polygon fill="black" stroke="black" points="1719.25,-480.79 1715.75,-470.79 1712.25,-480.79 1719.25,-480.79"/>
+</g>
+<!-- K2Node_MatineeController_2_Played__block_0&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_682 -->
+<g id="edge39" class="edge">
+<title>K2Node_MatineeController_2_Played__block_0:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_682:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M1970.88,-422.25C1991.44,-422.25 1971.01,-396.53 1969.88,-376 1965.37,-293.37 1953.94,-270.22 1952.84,-193.29"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="1952.77,-183.43 1957.34,-193.4 1953.29,-185.99 1953.34,-193.43 1952.84,-193.43 1952.34,-193.44 1952.29,-186 1948.34,-193.46 1952.77,-183.43"/>
+</g>
+<!-- K2Node_MatineeController_2_Finished -->
+<g id="node37" class="node">
+<title>K2Node_MatineeController_2_Finished</title>
+<polygon fill="#ffd4d4" stroke="none" points="5919.25,-871 5919.25,-893.5 6288.25,-893.5 6288.25,-871 5919.25,-871"/>
+<polygon fill="none" stroke="black" points="5919.25,-871 5919.25,-893.5 6288.25,-893.5 6288.25,-871 5919.25,-871"/>
+<text xml:space="preserve" text-anchor="start" x="5922.25" y="-878.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="5988.25" y="-878.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5996.5" y="-878.2" font-family="monospace" font-size="14.00" fill="#6a0080">K2Node_MatineeController_2_Finished</text>
+</g>
+<!-- K2Node_MatineeController_2_Finished__block_0 -->
+<g id="node38" class="node">
+<title>K2Node_MatineeController_2_Finished__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="5884.13,-669.5 5884.13,-754 6393.38,-754 6393.38,-669.5 5884.13,-669.5"/>
+<polygon fill="none" stroke="black" points="5884.13,-731.5 5884.13,-754 6393.38,-754 6393.38,-731.5 5884.13,-731.5"/>
+<text xml:space="preserve" text-anchor="start" x="5887.13" y="-737.7" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::K2Node_MatineeController_2_Finished @ 0</text>
+<polygon fill="none" stroke="black" points="5884.13,-669.5 5884.13,-731.5 6393.38,-731.5 6393.38,-669.5 5884.13,-669.5"/>
+<text xml:space="preserve" text-anchor="start" x="5887.13" y="-716.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="5911.88" y="-716.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6060.38" y="-716.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6068.63" y="-716.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="5887.13" y="-702.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="5920.13" y="-702.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5936.63" y="-702.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="6027.38" y="-702.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6035.63" y="-702.2" font-family="monospace" font-size="14.00" fill="#0000cd">687</text>
+<text xml:space="preserve" text-anchor="start" x="5887.13" y="-688.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="5920.13" y="-688.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="5887.13" y="-674.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="5920.13" y="-674.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5936.63" y="-674.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- K2Node_MatineeController_2_Finished&#45;&gt;K2Node_MatineeController_2_Finished__block_0 -->
+<g id="edge40" class="edge">
+<title>K2Node_MatineeController_2_Finished&#45;&gt;K2Node_MatineeController_2_Finished__block_0:n</title>
+<path fill="none" stroke="black" d="M6111.87,-864.27C6121.2,-843.3 6135.58,-806.04 6138.3,-770.4"/>
+<polygon fill="black" stroke="black" points="6141.79,-770.55 6138.69,-760.42 6134.8,-770.27 6141.79,-770.55"/>
+</g>
+<!-- K2Node_MatineeController_2_Finished__block_0&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_687 -->
+<g id="edge41" class="edge">
+<title>K2Node_MatineeController_2_Finished__block_0:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_687:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M6402.13,-711.75C6499.78,-711.75 6498.99,-614.29 6498.77,-516.49"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="6498.75,-506.7 6503.27,-516.69 6499.26,-509.26 6499.27,-516.7 6498.77,-516.7 6498.27,-516.7 6498.26,-509.26 6494.27,-516.71 6498.75,-506.7"/>
+</g>
+<!-- K2Node_MatineeController_0_Played -->
+<g id="node39" class="node">
+<title>K2Node_MatineeController_0_Played</title>
+<polygon fill="#ffd4d4" stroke="none" points="1082.5,-411 1082.5,-433.5 1435,-433.5 1435,-411 1082.5,-411"/>
+<polygon fill="none" stroke="black" points="1082.5,-411 1082.5,-433.5 1435,-433.5 1435,-411 1082.5,-411"/>
+<text xml:space="preserve" text-anchor="start" x="1085.5" y="-418.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="1151.5" y="-418.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1159.75" y="-418.2" font-family="monospace" font-size="14.00" fill="#6a0080">K2Node_MatineeController_0_Played</text>
+</g>
+<!-- K2Node_MatineeController_0_Played__block_0 -->
+<g id="node40" class="node">
+<title>K2Node_MatineeController_0_Played__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="1096.38,-111.5 1096.38,-196 1589.13,-196 1589.13,-111.5 1096.38,-111.5"/>
+<polygon fill="none" stroke="black" points="1096.38,-173.5 1096.38,-196 1589.13,-196 1589.13,-173.5 1096.38,-173.5"/>
+<text xml:space="preserve" text-anchor="start" x="1099.38" y="-179.7" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::K2Node_MatineeController_0_Played @ 0</text>
+<polygon fill="none" stroke="black" points="1096.38,-111.5 1096.38,-173.5 1589.13,-173.5 1589.13,-111.5 1096.38,-111.5"/>
+<text xml:space="preserve" text-anchor="start" x="1099.38" y="-158.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="1124.13" y="-158.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1272.63" y="-158.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1280.88" y="-158.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="1099.38" y="-144.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="1132.38" y="-144.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1148.88" y="-144.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1239.63" y="-144.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1247.88" y="-144.2" font-family="monospace" font-size="14.00" fill="#0000cd">692</text>
+<text xml:space="preserve" text-anchor="start" x="1099.38" y="-130.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="1132.38" y="-130.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="1099.38" y="-116.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="1132.38" y="-116.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1148.88" y="-116.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- K2Node_MatineeController_0_Played&#45;&gt;K2Node_MatineeController_0_Played__block_0 -->
+<g id="edge42" class="edge">
+<title>K2Node_MatineeController_0_Played&#45;&gt;K2Node_MatineeController_0_Played__block_0:n</title>
+<path fill="none" stroke="black" d="M1270.08,-404.37C1291.93,-370.21 1338.15,-289.52 1342.43,-212.16"/>
+<polygon fill="black" stroke="black" points="1345.92,-212.39 1342.71,-202.29 1338.93,-212.19 1345.92,-212.39"/>
+</g>
+<!-- K2Node_MatineeController_0_Played__block_0&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692 -->
+<g id="edge43" class="edge">
+<title>K2Node_MatineeController_0_Played__block_0:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_692:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M1597.88,-153.75C1638.72,-153.75 1633.91,-113.1 1672.75,-100.5 1724.09,-83.85 5440.19,-117.96 5672.39,-69.46"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="5681.52,-65.47 5674.15,-73.6 5679.37,-66.96 5672.55,-69.93 5672.35,-69.47 5672.15,-69.02 5678.97,-66.04 5670.55,-65.35 5681.52,-65.47"/>
+</g>
+<!-- K2Node_MatineeController_0_Finished -->
+<g id="node41" class="node">
+<title>K2Node_MatineeController_0_Finished</title>
+<polygon fill="#ffd4d4" stroke="none" points="7914.25,-871 7914.25,-893.5 8283.25,-893.5 8283.25,-871 7914.25,-871"/>
+<polygon fill="none" stroke="black" points="7914.25,-871 7914.25,-893.5 8283.25,-893.5 8283.25,-871 7914.25,-871"/>
+<text xml:space="preserve" text-anchor="start" x="7917.25" y="-878.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="7983.25" y="-878.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7991.5" y="-878.2" font-family="monospace" font-size="14.00" fill="#6a0080">K2Node_MatineeController_0_Finished</text>
+</g>
+<!-- K2Node_MatineeController_0_Finished__block_0 -->
+<g id="node42" class="node">
+<title>K2Node_MatineeController_0_Finished__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="7844.12,-669.5 7844.12,-754 8353.38,-754 8353.38,-669.5 7844.12,-669.5"/>
+<polygon fill="none" stroke="black" points="7844.12,-731.5 7844.12,-754 8353.38,-754 8353.38,-731.5 7844.12,-731.5"/>
+<text xml:space="preserve" text-anchor="start" x="7847.12" y="-737.7" font-family="monospace" font-size="14.00">kg_06_camera_ms110_C::K2Node_MatineeController_0_Finished @ 0</text>
+<polygon fill="none" stroke="black" points="7844.12,-669.5 7844.12,-731.5 8353.38,-731.5 8353.38,-669.5 7844.12,-669.5"/>
+<text xml:space="preserve" text-anchor="start" x="7847.12" y="-716.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="7871.87" y="-716.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="8020.37" y="-716.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8028.62" y="-716.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_kg_06_camera_ms110</text>
+<text xml:space="preserve" text-anchor="start" x="7847.12" y="-702.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="7880.12" y="-702.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7896.62" y="-702.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="7987.37" y="-702.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7995.62" y="-702.2" font-family="monospace" font-size="14.00" fill="#0000cd">10</text>
+<text xml:space="preserve" text-anchor="start" x="7847.12" y="-688.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="7880.12" y="-688.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="7847.12" y="-674.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="7880.12" y="-674.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7896.62" y="-674.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- K2Node_MatineeController_0_Finished&#45;&gt;K2Node_MatineeController_0_Finished__block_0 -->
+<g id="edge44" class="edge">
+<title>K2Node_MatineeController_0_Finished&#45;&gt;K2Node_MatineeController_0_Finished__block_0:n</title>
+<path fill="none" stroke="black" d="M8098.75,-864.63C8098.75,-843.39 8098.75,-805.18 8098.75,-770.14"/>
+<polygon fill="black" stroke="black" points="8102.25,-770.42 8098.75,-760.42 8095.25,-770.42 8102.25,-770.42"/>
+</g>
+<!-- K2Node_MatineeController_0_Finished__block_0&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_10 -->
+<g id="edge45" class="edge">
+<title>K2Node_MatineeController_0_Finished__block_0:e&#45;&gt;ExecuteUbergraph_kg_06_camera_ms110__block_10:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M8362.13,-711.75C8382.69,-711.75 8368.6,-684.65 8361.13,-665.5 8326.43,-576.62 8222.25,-595.09 8213.36,-509.45"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="8212.87,-499.7 8217.86,-509.47 8213.5,-502.24 8213.87,-509.66 8213.37,-509.69 8212.87,-509.71 8212.5,-502.29 8208.87,-509.91 8212.87,-499.7"/>
+</g>
+</g>
+</svg>
+</div>
+    </div>
+  </div>
+
+  <div id="minimap">
+    <div id="minimap-content">
+      <canvas id="minimap-canvas"></canvas>
+      <div id="minimap-viewport"></div>
+    </div>
+  </div>
+
+  <div id="hint">
+    <kbd>Wheel</kbd> zoom &nbsp;
+    <kbd>Drag</kbd> pan
+  </div>
+
+  <div id="drop-overlay">Drop SVG file here</div>
+
+  <script>
+    const fileInput = document.getElementById('file-input');
+    const viewport = document.getElementById('viewport');
+    const svgWrapper = document.getElementById('svg-wrapper');
+    const svgContainer = document.getElementById('svg-container');
+    const zoomLevelEl = document.getElementById('zoom-level');
+    const searchInput = document.getElementById('search-input');
+    const searchInfo = document.getElementById('search-info');
+    const emptyState = document.getElementById('empty-state');
+    const dropOverlay = document.getElementById('drop-overlay');
+    const darkModeToggle = document.getElementById('dark-mode-toggle');
+    const minimapToggle = document.getElementById('minimap-toggle');
+    const minimap = document.getElementById('minimap');
+    const minimapContent = document.getElementById('minimap-content');
+    const minimapCanvas = document.getElementById('minimap-canvas');
+    const minimapViewport = document.getElementById('minimap-viewport');
+
+    let scale = 1;
+    let darkMode = false;
+    let minimapVisible = true;
+    let svgElement = null;
+    let svgWidth = 0;
+    let svgHeight = 0;
+    let minimapImageData = null; // Cached rasterized SVG
+
+    // Panning state
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let scrollStartX = 0;
+    let scrollStartY = 0;
+
+    // Minimap drag state
+    let isMinimapDragging = false;
+    let minimapDragOffsetX = 0;
+    let minimapDragOffsetY = 0;
+
+    // Search state
+    let searchMatches = [];
+    let currentMatchIndex = -1;
+    let highlightGroup = null;
+    let searchDebounceTimer = null;
+
+    const MIN_SCALE = 0.1;
+    const MAX_SCALE = 5;
+
+    // === File Loading ===
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) loadSvgFile(file);
+    });
+
+    // Examples dropdowns (toolbar and empty state)
+    const exampleFiles = [
+      'vm_flow.svg',
+      'PLS_Base.svg',
+      'dominion.svg',
+      'blueprint.svg'
+    ];
+
+    document.querySelectorAll('.examples-select').forEach(select => {
+      // Populate options
+      exampleFiles.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file;
+        option.textContent = file;
+        select.appendChild(option);
+      });
+
+      // Handle selection
+      select.addEventListener('change', async (e) => {
+        const file = e.target.value;
+        if (!file) return;
+
+        try {
+          const response = await fetch(`examples/${file}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${file}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+
+        // Reset dropdown to placeholder
+        select.value = '';
+      });
+    });
+
+    // Empty state file button
+    document.getElementById('empty-file-btn').addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    // Drag and drop
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.add('active');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      if (e.target === dropOverlay) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.remove('active');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.svg')) {
+        loadSvgFile(file);
+      }
+    });
+
+    function loadSvgFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const svgText = e.target.result;
+        loadSvgContent(svgText);
+        document.title = `SVG Viewer - ${file.name}`;
+      };
+      reader.readAsText(file);
+    }
+
+    function loadSvgContent(svgText) {
+      // Clear previous content
+      svgContainer.innerHTML = svgText;
+      svgElement = svgContainer.querySelector('svg');
+
+      if (!svgElement) {
+        alert('Invalid SVG file');
+        return;
+      }
+
+      // Show viewport, hide empty state
+      emptyState.classList.add('hidden');
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap
+      initMinimap(svgText);
+    }
+
+    // === Zoom Controls ===
+
+    document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.25));
+    document.getElementById('zoom-out').addEventListener('click', () => zoomBy(0.8));
+    document.getElementById('zoom-reset').addEventListener('click', () => setZoom(1));
+
+    // === Dark Mode Toggle ===
+
+    darkModeToggle.addEventListener('click', toggleDarkMode);
+
+    function toggleDarkMode() {
+      darkMode = !darkMode;
+      svgContainer.classList.toggle('dark-mode', darkMode);
+      minimapContent.classList.toggle('dark-mode', darkMode);
+      darkModeToggle.classList.toggle('active', darkMode);
+    }
+
+    // === Minimap ===
+
+    minimapToggle.addEventListener('click', toggleMinimap);
+
+    function toggleMinimap() {
+      minimapVisible = !minimapVisible;
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+    }
+
+    function initMinimap(svgText) {
+      // Calculate minimap size to fit within bounds while preserving aspect ratio
+      const maxWidth = 400;
+      const maxHeight = 600;
+      const aspectRatio = svgWidth / svgHeight;
+
+      let mmWidth, mmHeight;
+      if (aspectRatio > maxWidth / maxHeight) {
+        // Width constrained
+        mmWidth = maxWidth;
+        mmHeight = maxWidth / aspectRatio;
+      } else {
+        // Height constrained
+        mmHeight = maxHeight;
+        mmWidth = maxHeight * aspectRatio;
+      }
+
+      minimap.style.width = mmWidth + 'px';
+      minimap.style.height = mmHeight + 'px';
+
+      // Set canvas size (use higher resolution for retina displays)
+      const dpr = window.devicePixelRatio || 1;
+      minimapCanvas.width = mmWidth * dpr;
+      minimapCanvas.height = mmHeight * dpr;
+      minimapCanvas.style.width = mmWidth + 'px';
+      minimapCanvas.style.height = mmHeight + 'px';
+
+      // Show minimap
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+
+      // Sync dark mode
+      minimapContent.classList.toggle('dark-mode', darkMode);
+
+      // Rasterize SVG to canvas
+      rasterizeSvgToCanvas(svgText, mmWidth, mmHeight, dpr);
+
+      // Update viewport indicator
+      updateMinimapViewport();
+    }
+
+    function rasterizeSvgToCanvas(svgText, width, height, dpr) {
+      const img = new Image();
+      const blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+
+      img.onload = () => {
+        const ctx = minimapCanvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+
+        // Cache the image data for potential re-use
+        minimapImageData = ctx.getImageData(0, 0, minimapCanvas.width, minimapCanvas.height);
+      };
+
+      img.onerror = () => {
+        console.error('Failed to rasterize SVG for minimap');
+        URL.revokeObjectURL(url);
+      };
+
+      img.src = url;
+    }
+
+    function updateMinimapViewport() {
+      if (!svgElement || !minimapVisible) return;
+
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+
+      // Padding in the main viewport
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Current scroll position relative to SVG (not padding)
+      const scrollX = viewport.scrollLeft - padX;
+      const scrollY = viewport.scrollTop - padY;
+
+      // Visible area in SVG coordinates
+      const visibleX = scrollX / scale;
+      const visibleY = scrollY / scale;
+      const visibleW = vpRect.width / scale;
+      const visibleH = vpRect.height / scale;
+
+      // Scale to minimap coordinates
+      const mmScaleX = mmRect.width / svgWidth;
+      const mmScaleY = mmRect.height / svgHeight;
+
+      // Position and size the viewport indicator (no clamping - allow overflow)
+      const left = visibleX * mmScaleX;
+      const top = visibleY * mmScaleY;
+      const width = visibleW * mmScaleX;
+      const height = visibleH * mmScaleY;
+
+      minimapViewport.style.left = left + 'px';
+      minimapViewport.style.top = top + 'px';
+      minimapViewport.style.width = Math.max(10, width) + 'px';
+      minimapViewport.style.height = Math.max(10, height) + 'px';
+    }
+
+    // Update minimap on scroll
+    viewport.addEventListener('scroll', updateMinimapViewport);
+
+    // Minimap click/drag to navigate
+    minimapContent.addEventListener('mousedown', (e) => {
+      isMinimapDragging = true;
+
+      // Calculate offset so dragging feels natural
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = minimapViewport.getBoundingClientRect();
+
+      // Check if clicking inside the viewport indicator
+      const inViewport = e.clientX >= vpRect.left && e.clientX <= vpRect.right &&
+        e.clientY >= vpRect.top && e.clientY <= vpRect.bottom;
+
+      if (inViewport) {
+        // Drag from current position
+        minimapDragOffsetX = e.clientX - vpRect.left;
+        minimapDragOffsetY = e.clientY - vpRect.top;
+      } else {
+        // Click outside - center viewport on click point, then allow drag
+        const vpW = vpRect.width;
+        const vpH = vpRect.height;
+        minimapDragOffsetX = vpW / 2;
+        minimapDragOffsetY = vpH / 2;
+        navigateMinimapTo(e, true);
+      }
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isMinimapDragging) return;
+      navigateMinimapTo(e, true);
+    });
+
+    document.addEventListener('mouseup', () => {
+      isMinimapDragging = false;
+    });
+
+    function navigateMinimapTo(e, useDragOffset = false) {
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Mouse position in minimap
+      let mmX = e.clientX - mmRect.left;
+      let mmY = e.clientY - mmRect.top;
+
+      if (useDragOffset) {
+        // Adjust for drag offset (top-left of viewport indicator)
+        mmX -= minimapDragOffsetX;
+        mmY -= minimapDragOffsetY;
+      } else {
+        // Click centers the viewport on that point
+        const vpW = (vpRect.width / scale) * (mmRect.width / svgWidth);
+        const vpH = (vpRect.height / scale) * (mmRect.height / svgHeight);
+        mmX -= vpW / 2;
+        mmY -= vpH / 2;
+      }
+
+      // Convert to SVG coordinates
+      const svgX = (mmX / mmRect.width) * svgWidth;
+      const svgY = (mmY / mmRect.height) * svgHeight;
+
+      // Scroll to position (accounting for padding)
+      viewport.scrollLeft = svgX * scale + padX;
+      viewport.scrollTop = svgY * scale + padY;
+    }
+
+    function zoomBy(factor, centerX, centerY) {
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor));
+      if (newScale === scale) return;
+
+      const rect = viewport.getBoundingClientRect();
+      const oldPadX = rect.width;
+      const oldPadY = rect.height;
+
+      // If center point provided, zoom towards it
+      if (centerX !== undefined && centerY !== undefined) {
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates (accounting for padding)
+        const svgX = (scrollX + centerX - rect.left - oldPadX) / scale;
+        const svgY = (scrollY + centerY - rect.top - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        // New padding after zoom (viewport size doesn't change)
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        // Scroll to keep the point under cursor
+        viewport.scrollLeft = svgX * scale + newPadX - (centerX - rect.left);
+        viewport.scrollTop = svgY * scale + newPadY - (centerY - rect.top);
+      } else {
+        // Zoom towards center of viewport
+        const viewCenterX = rect.width / 2;
+        const viewCenterY = rect.height / 2;
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates
+        const svgX = (scrollX + viewCenterX - oldPadX) / scale;
+        const svgY = (scrollY + viewCenterY - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        viewport.scrollLeft = svgX * scale + newPadX - viewCenterX;
+        viewport.scrollTop = svgY * scale + newPadY - viewCenterY;
+      }
+    }
+
+    function setZoom(newScale) {
+      scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+      updateZoom();
+    }
+
+    function centerSvg() {
+      const rect = viewport.getBoundingClientRect();
+      const padX = rect.width;
+      const padY = rect.height;
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      // Scroll so SVG is centered in viewport
+      viewport.scrollLeft = padX + (scaledW - rect.width) / 2;
+      viewport.scrollTop = padY + (scaledH - rect.height) / 2;
+    }
+
+    function updateZoom() {
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportW = viewportRect.width;
+      const viewportH = viewportRect.height;
+
+      // Padding allows the SVG to be scrolled so it can be centered (or anywhere)
+      const padX = viewportW;
+      const padY = viewportH;
+
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      svgContainer.style.transform = `scale(${scale})`;
+      svgContainer.style.width = scaledW + 'px';
+      svgContainer.style.height = scaledH + 'px';
+
+      // Wrapper includes padding on all sides
+      svgWrapper.style.paddingLeft = padX + 'px';
+      svgWrapper.style.paddingTop = padY + 'px';
+      svgWrapper.style.paddingRight = padX + 'px';
+      svgWrapper.style.paddingBottom = padY + 'px';
+
+      zoomLevelEl.textContent = Math.round(scale * 100) + '%';
+
+      // Update minimap viewport indicator
+      updateMinimapViewport();
+    }
+
+    // Mouse wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      zoomBy(factor, e.clientX, e.clientY);
+    }, {passive: false});
+
+    // === Panning ===
+
+    function isTextElement(el) {
+      while (el && el !== viewport) {
+        if (el.tagName === 'text' || el.tagName === 'tspan') return true;
+        el = el.parentElement;
+      }
+      return false;
+    }
+
+    viewport.addEventListener('mousedown', (e) => {
+      // Middle mouse always pans
+      if (e.button === 1) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+        return;
+      }
+
+      // Left click: pan if not on text, otherwise let browser handle selection
+      if (e.button === 0 && !isTextElement(e.target)) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+      }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isPanning) return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      viewport.scrollLeft = scrollStartX - dx;
+      viewport.scrollTop = scrollStartY - dy;
+    });
+
+    document.addEventListener('mouseup', () => {
+      isPanning = false;
+      viewport.classList.remove('panning');
+    });
+
+    // === Touch Support (pinch zoom only, panning is native scroll) ===
+
+    let touchStartDist = 0;
+    let touchStartScale = 1;
+    let lastTouchCenter = null;
+
+    viewport.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        touchStartDist = getTouchDistance(e.touches);
+        touchStartScale = scale;
+        lastTouchCenter = getTouchCenter(e.touches);
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDistance(e.touches);
+        const center = getTouchCenter(e.touches);
+        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, touchStartScale * (dist / touchStartDist)));
+
+        if (newScale !== scale) {
+          // Zoom towards pinch center
+          const rect = viewport.getBoundingClientRect();
+          const padX = rect.width;
+          const padY = rect.height;
+
+          const svgX = (viewport.scrollLeft + center.x - rect.left - padX) / scale;
+          const svgY = (viewport.scrollTop + center.y - rect.top - padY) / scale;
+
+          scale = newScale;
+          updateZoom();
+
+          viewport.scrollLeft = svgX * scale + padX - (center.x - rect.left);
+          viewport.scrollTop = svgY * scale + padY - (center.y - rect.top);
+        }
+
+        lastTouchCenter = center;
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) {
+        touchStartDist = 0;
+        lastTouchCenter = null;
+      }
+    });
+
+    function getTouchDistance(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getTouchCenter(touches) {
+      return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2
+      };
+    }
+
+    // === Search ===
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(performSearch, 150);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          navigateSearch(-1);
+        } else {
+          navigateSearch(1);
+        }
+      } else if (e.key === 'Escape') {
+        searchInput.blur();
+        clearSearch();
+      }
+    });
+
+    document.getElementById('search-prev').addEventListener('click', () => navigateSearch(-1));
+    document.getElementById('search-next').addEventListener('click', () => navigateSearch(1));
+
+    // CSS Custom Highlight API highlights
+    let searchResultsHighlight = null;
+    let searchCurrentHighlight = null;
+
+    // Initialize highlights if API is available
+    if (CSS.highlights) {
+      searchResultsHighlight = new Highlight();
+      searchCurrentHighlight = new Highlight();
+      CSS.highlights.set('search-results', searchResultsHighlight);
+      CSS.highlights.set('search-current', searchCurrentHighlight);
+    }
+
+    function performSearch() {
+      if (!svgElement) return;
+
+      const query = searchInput.value.trim();
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+
+      if (!query) {
+        updateSearchInfo();
+        searchInput.classList.remove('invalid');
+        return;
+      }
+
+      // Try to compile regex
+      let regex;
+      try {
+        regex = new RegExp(query, 'gi');
+        searchInput.classList.remove('invalid');
+      } catch (e) {
+        // Invalid regex
+        searchInput.classList.add('invalid');
+        updateSearchInfo();
+        return;
+      }
+
+      // Find all text elements containing matches
+      const textElements = svgElement.querySelectorAll('text');
+      textElements.forEach((textEl) => {
+        const content = textEl.textContent || '';
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        let match;
+        regex.lastIndex = 0; // Reset regex state
+        while ((match = regex.exec(content)) !== null) {
+          // Create range for this match
+          try {
+            const range = new Range();
+            range.setStart(textNode, match.index);
+            range.setEnd(textNode, match.index + match[0].length);
+
+            searchMatches.push({
+              element: textEl,
+              start: match.index,
+              length: match[0].length,
+              text: match[0],
+              range: range
+            });
+          } catch (e) {
+            // Range creation failed, skip this match
+          }
+
+          // Prevent infinite loop on zero-length matches
+          if (match[0].length === 0) regex.lastIndex++;
+        }
+      });
+
+      // Add all ranges to the highlight (if API available)
+      if (searchResultsHighlight) {
+        searchMatches.forEach(match => {
+          searchResultsHighlight.add(match.range);
+        });
+      } else {
+        // Fallback: use SVG rects
+        searchMatches.forEach((match, index) => {
+          const rect = createHighlightRect(match);
+          if (rect) {
+            rect.dataset.index = index;
+            highlightGroup.appendChild(rect);
+          }
+        });
+      }
+
+      updateSearchInfo();
+
+      // Navigate to first match (don't select - user is still typing)
+      if (searchMatches.length > 0) {
+        currentMatchIndex = 0;
+        highlightCurrentMatch();
+        scrollToCurrentMatch(false);
+      }
+    }
+
+    function createHighlightRect(match) {
+      try {
+        const textEl = match.element;
+        const fullBbox = textEl.getBBox();
+        const content = textEl.textContent || '';
+
+        // Calculate approximate character width
+        const charWidth = fullBbox.width / content.length;
+
+        // Calculate highlight bounds for the matched portion
+        const x = fullBbox.x + (match.start * charWidth);
+        const width = match.length * charWidth;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x - 1);
+        rect.setAttribute('y', fullBbox.y - 2);
+        rect.setAttribute('width', width + 2);
+        rect.setAttribute('height', fullBbox.height + 4);
+        rect.classList.add('search-highlight');
+
+        // Apply transforms from parent elements
+        let transform = '';
+        let el = textEl;
+        while (el && el !== svgElement) {
+          const t = el.getAttribute('transform');
+          if (t) transform = t + ' ' + transform;
+          el = el.parentElement;
+        }
+        if (transform) {
+          rect.setAttribute('transform', transform);
+        }
+
+        return rect;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function clearHighlights() {
+      // Clear CSS Custom Highlights
+      if (searchResultsHighlight) {
+        searchResultsHighlight.clear();
+      }
+      if (searchCurrentHighlight) {
+        searchCurrentHighlight.clear();
+      }
+      // Clear SVG rect fallback
+      if (highlightGroup) {
+        highlightGroup.innerHTML = '';
+      }
+    }
+
+    function clearSearch() {
+      searchInput.value = '';
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+      updateSearchInfo();
+    }
+
+    function navigateSearch(direction) {
+      if (searchMatches.length === 0) return;
+
+      currentMatchIndex += direction;
+      if (currentMatchIndex >= searchMatches.length) {
+        currentMatchIndex = 0;
+      } else if (currentMatchIndex < 0) {
+        currentMatchIndex = searchMatches.length - 1;
+      }
+
+      highlightCurrentMatch();
+      scrollToCurrentMatch(true); // Select text on explicit navigation
+    }
+
+    function highlightCurrentMatch() {
+      if (searchCurrentHighlight) {
+        // Update current highlight
+        searchCurrentHighlight.clear();
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchMatches.length) {
+          searchCurrentHighlight.add(searchMatches[currentMatchIndex].range);
+        }
+      } else {
+        // Fallback: toggle class on SVG rects
+        const rects = highlightGroup.querySelectorAll('rect');
+        rects.forEach((rect, i) => {
+          rect.classList.toggle('current', i === currentMatchIndex);
+        });
+      }
+      updateSearchInfo();
+    }
+
+    function scrollToCurrentMatch(shouldSelect = false) {
+      if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
+
+      const match = searchMatches[currentMatchIndex];
+      const textEl = match.element;
+      try {
+        const bbox = textEl.getBBox();
+
+        // Get cumulative transform
+        let el = textEl;
+        let matrix = svgElement.createSVGMatrix();
+        const transforms = [];
+        while (el && el !== svgElement) {
+          const t = el.transform?.baseVal?.consolidate()?.matrix;
+          if (t) transforms.unshift(t);
+          el = el.parentElement;
+        }
+        transforms.forEach(t => {
+          matrix = matrix.multiply(t);
+        });
+
+        // Transform the center point
+        const centerX = bbox.x + bbox.width / 2;
+        const centerY = bbox.y + bbox.height / 2;
+        const point = svgElement.createSVGPoint();
+        point.x = centerX;
+        point.y = centerY;
+        const transformed = point.matrixTransform(matrix);
+
+        // Convert to screen coordinates and scroll (accounting for padding)
+        const viewportRect = viewport.getBoundingClientRect();
+        const padX = viewportRect.width;
+        const padY = viewportRect.height;
+
+        const screenX = transformed.x * scale + padX;
+        const screenY = transformed.y * scale + padY;
+
+        const targetScrollX = screenX - viewportRect.width / 2;
+        const targetScrollY = screenY - viewportRect.height / 2;
+
+        viewport.scrollTo({
+          left: targetScrollX,
+          top: targetScrollY,
+          behavior: 'smooth'
+        });
+
+        // Only select text on explicit navigation (Enter/buttons), not while typing
+        if (shouldSelect) {
+          selectMatchedText(match);
+        }
+      } catch (e) {
+        // Fallback: try to scroll the element into view
+        textEl.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});
+      }
+    }
+
+    function selectMatchedText(match) {
+      try {
+        const textEl = match.element;
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.setStart(textNode, match.start);
+        range.setEnd(textNode, match.start + match.length);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (e) {
+        // Selection not supported or failed
+      }
+    }
+
+    function updateSearchInfo() {
+      if (searchMatches.length === 0) {
+        searchInfo.textContent = searchInput.value ? 'No matches' : '0 / 0';
+      } else {
+        searchInfo.textContent = `${currentMatchIndex + 1} / ${searchMatches.length}`;
+      }
+    }
+
+    // === Keyboard Shortcuts ===
+
+    document.addEventListener('keydown', (e) => {
+      // Don't handle shortcuts if typing in search
+      if (document.activeElement === searchInput) return;
+
+      // Zoom shortcuts
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomBy(1.25);
+      } else if (e.key === '-') {
+        e.preventDefault();
+        zoomBy(0.8);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setZoom(1);
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        toggleDarkMode();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        toggleMinimap();
+      }
+    });
+
+    // === Embedded SVG Support ===
+
+    function initializeEmbeddedSvg() {
+      // Check if an SVG is already present in the container (embedded at build time)
+      svgElement = svgContainer.querySelector('svg');
+      if (!svgElement) return false;
+
+      // Hide file selection UI since this is a self-contained viewer
+      const fileGroup = document.querySelector('#toolbar .group:first-child');
+      if (fileGroup) fileGroup.style.display = 'none';
+      emptyState.style.display = 'none';
+
+      // Show viewport
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap - serialize SVG for rasterization
+      const svgText = new XMLSerializer().serializeToString(svgElement);
+      initMinimap(svgText);
+
+      return true;
+    }
+
+    // Check for embedded SVG on startup
+    const hasEmbeddedSvg = initializeEmbeddedSvg();
+
+    // === URL Hash Loading ===
+
+    async function loadFromHash() {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return;
+
+      const params = new URLSearchParams(hash);
+
+      // Check for url= parameter
+      const url = params.get('url');
+      if (url) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            // Extract filename from URL for title
+            const filename = url.split('/').pop() || 'remote';
+            document.title = `SVG Viewer - ${filename}`;
+          } else {
+            console.error('Failed to load SVG from URL:', response.status);
+          }
+        } catch (err) {
+          console.error('Failed to load SVG from URL:', err);
+        }
+        return;
+      }
+
+      // Check for example= parameter
+      const example = params.get('example');
+      if (example && exampleFiles.includes(example)) {
+        try {
+          const response = await fetch(`examples/${example}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${example}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+      }
+    }
+
+    // Only load from hash if no embedded SVG
+    if (!hasEmbeddedSvg) {
+      loadFromHash();
+      window.addEventListener('hashchange', loadFromHash);
+    }
+
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,2483 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVG Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #toolbar {
+      background: #2d2d2d;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #444;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #toolbar .group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #toolbar label {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #toolbar button {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    #toolbar button:hover {
+      background: #555;
+    }
+
+    #toolbar button:active {
+      background: #666;
+    }
+
+    #file-input {
+      font-size: 13px;
+    }
+
+    .examples-select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .examples-select:hover {
+      background: #555;
+    }
+
+    #zoom-level {
+      min-width: 50px;
+      text-align: center;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #search-input {
+      background: #333;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      width: 200px;
+    }
+
+    #search-input:focus {
+      outline: none;
+      border-color: #0078d4;
+    }
+
+    #search-input.invalid {
+      border-color: #d32f2f;
+      background: #3d2020;
+    }
+
+    #search-info {
+      font-size: 13px;
+      color: #aaa;
+      min-width: 60px;
+    }
+
+    #viewport {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      touch-action: pan-x pan-y;
+      cursor: grab;
+    }
+
+    #viewport.panning {
+      cursor: grabbing;
+    }
+
+    #svg-container text {
+      cursor: text;
+    }
+
+    #svg-wrapper {
+      display: inline-block;
+      /* Padding allows SVG to be scrolled/centered even when zoomed out */
+    }
+
+    #svg-container {
+      transform-origin: 0 0;
+      display: inline-block;
+    }
+
+    #svg-container svg {
+      display: block;
+    }
+
+    /* Dark mode for SVG - invert with reduced contrast */
+    #svg-container.dark-mode svg {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    /* Toggle button active state */
+    #toolbar button.active {
+      background: #0078d4;
+      border-color: #0078d4;
+    }
+
+    #toolbar button.active:hover {
+      background: #1084d8;
+    }
+
+    /* Search highlight styling - SVG rect fallback */
+    .search-highlight {
+      fill: #22ee22;
+      stroke: #00aa00;
+      stroke-width: 1;
+      pointer-events: none;
+    }
+
+    .search-highlight.current {
+      fill: #ff22ff;
+      stroke: #cc00cc;
+      stroke-width: 2;
+    }
+
+    /* CSS Custom Highlight API styling */
+    ::highlight(search-results) {
+      background-color: #22ee22;
+      color: black;
+    }
+
+    ::highlight(search-current) {
+      background-color: #ff22ff;
+      color: black;
+    }
+
+    #hint {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    #hint kbd {
+      background: #444;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: inherit;
+      margin: 0 2px;
+    }
+
+    /* Hide hint on mobile/touch devices */
+    @media (hover: none),
+    (max-width: 768px) {
+      #hint {
+        display: none;
+      }
+    }
+
+    /* Minimap */
+    #minimap {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      width: 400px;
+      max-height: 600px;
+      background: #2d2d2d;
+      border: 1px solid #444;
+      border-radius: 6px;
+      overflow: hidden;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    #minimap.visible {
+      display: block;
+    }
+
+    #minimap-content {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #minimap-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #minimap-viewport {
+      position: absolute;
+      border: 2px solid #0078d4;
+      background: rgba(0, 120, 212, 0.15);
+      cursor: move;
+      pointer-events: auto;
+    }
+
+    #minimap-content.dark-mode #minimap-canvas {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    #drop-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 120, 212, 0.2);
+      border: 3px dashed #0078d4;
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #0078d4;
+    }
+
+    #drop-overlay.active {
+      display: flex;
+    }
+
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      gap: 16px;
+    }
+
+    #empty-state.hidden {
+      display: none;
+    }
+
+    #empty-state .empty-title {
+      font-size: 32px;
+      font-weight: 600;
+      color: #ccc;
+    }
+
+    #empty-state .empty-subtitle {
+      font-size: 18px;
+      color: #666;
+    }
+
+    #empty-state .empty-divider {
+      font-size: 14px;
+      color: #555;
+      margin: 8px 0;
+    }
+
+    #empty-state .empty-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    #empty-state button,
+    #empty-state select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #empty-state button:hover,
+    #empty-state select:hover {
+      background: #555;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="toolbar">
+    <div class="group">
+      <input type="file" id="file-input" accept=".svg">
+      <select class="examples-select" title="Load example SVG">
+        <option value="">Examples...</option>
+      </select>
+    </div>
+    <div class="group">
+      <button id="zoom-out" title="Zoom out (-)">-</button>
+      <span id="zoom-level">100%</span>
+      <button id="zoom-in" title="Zoom in (+)">+</button>
+      <button id="zoom-reset" title="Reset zoom (0)">Reset</button>
+    </div>
+    <div class="group">
+      <button id="dark-mode-toggle" title="Toggle dark mode for SVG (D)">Dark Mode</button>
+      <button id="minimap-toggle" title="Toggle minimap (M)">Minimap</button>
+    </div>
+    <div class="group">
+      <input type="search" id="search-input" placeholder="Regex search...">
+      <button id="search-prev" title="Previous match (Shift+Enter)">Prev</button>
+      <span id="search-info">0 / 0</span>
+      <button id="search-next" title="Next match (Enter)">Next</button>
+    </div>
+  </div>
+
+  <div id="empty-state">
+    <div class="empty-title">SVG Viewer</div>
+    <div class="empty-subtitle">Drop an SVG file here</div>
+    <div class="empty-divider">or</div>
+    <div class="empty-actions">
+      <button id="empty-file-btn">Choose File</button>
+      <select class="examples-select">
+        <option value="">Load Example...</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="viewport" style="display: none;">
+    <div id="svg-wrapper">
+      <div id="svg-container"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 14.1.1 (20251213.1925)
+ -->
+<!-- Pages: 1 -->
+<svg width="8939pt" height="1058pt"
+ viewBox="0.00 0.00 8939.00 1058.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 1053.5)">
+<polygon fill="white" stroke="none" points="-4,4 -4,-1053.5 8935.25,-1053.5 8935.25,4 -4,4"/>
+<!-- fz_02_gimmick_icicle_01_C -->
+<g id="node1" class="node">
+<title>fz_02_gimmick_icicle_01_C</title>
+<polygon fill="#d4ffd4" stroke="none" points="8,-969 8,-1045 525.5,-1045 525.5,-969 8,-969"/>
+<polygon fill="none" stroke="black" points="8,-969 8,-1045 525.5,-1045 525.5,-969 8,-969"/>
+<text xml:space="preserve" text-anchor="start" x="11" y="-1029.7" font-family="monospace" font-size="14.00" fill="#800080">ClassExport:</text>
+<text xml:space="preserve" text-anchor="start" x="110" y="-1029.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="118.25" y="-1029.7" font-family="monospace" font-size="14.00" fill="#996300">fz_02_gimmick_icicle_01_C</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-1015.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-1015.7" font-family="monospace" font-size="14.00" fill="#800080">SuperStruct:</text>
+<text xml:space="preserve" text-anchor="start" x="126.5" y="-1015.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="151.25" y="-1015.7" font-family="monospace" font-size="14.00" fill="#996300">import /Script/TresGame&#45;&gt;TresLevelScriptActor</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-1001.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-1001.7" font-family="monospace" font-size="14.00" fill="#800080">Properties:</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-987.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="44" y="-987.7" font-family="monospace" font-size="14.00" fill="#996300">Struct</text>
+<text xml:space="preserve" text-anchor="start" x="93.5" y="-987.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="134.75" y="-987.7" font-family="monospace" font-size="14.00" fill="#006400">UberGraphFrame</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-973.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="60.5" y="-973.7" font-family="monospace" font-size="14.00" fill="#800080">CPF_Transient|CPF_DuplicateTransient</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01 -->
+<g id="node2" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01</title>
+<polygon fill="#ffd4d4" stroke="none" points="781.88,-997.5 781.88,-1045.5 1241.62,-1045.5 1241.62,-997.5 781.88,-997.5"/>
+<polygon fill="none" stroke="black" points="781.88,-997.5 781.88,-1045.5 1241.62,-1045.5 1241.62,-997.5 781.88,-997.5"/>
+<text xml:space="preserve" text-anchor="start" x="784.88" y="-1030.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="850.88" y="-1030.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="859.12" y="-1030.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_fz_02_gimmick_icicle_01</text>
+<text xml:space="preserve" text-anchor="start" x="784.88" y="-1016.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="801.38" y="-1016.2" font-family="monospace" font-size="14.00" fill="#996300">Int</text>
+<text xml:space="preserve" text-anchor="start" x="826.12" y="-1016.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="850.88" y="-1016.2" font-family="monospace" font-size="14.00" fill="#006400">EntryPoint</text>
+<text xml:space="preserve" text-anchor="start" x="784.88" y="-1002.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="817.88" y="-1002.2" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_0 -->
+<g id="node3" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="715.88,-908.5 715.88,-953.5 1307.62,-953.5 1307.62,-908.5 715.88,-908.5"/>
+<polygon fill="none" stroke="black" points="715.88,-931 715.88,-953.5 1307.62,-953.5 1307.62,-931 715.88,-931"/>
+<text xml:space="preserve" text-anchor="start" x="718.88" y="-937.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 0</text>
+<polygon fill="none" stroke="black" points="715.88,-908.5 715.88,-931 1307.62,-931 1307.62,-908.5 715.88,-908.5"/>
+<text xml:space="preserve" text-anchor="start" x="718.88" y="-915.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="743.62" y="-915.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PushExecutionFlow</text>
+<text xml:space="preserve" text-anchor="start" x="908.62" y="-915.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="916.88" y="-915.7" font-family="monospace" font-size="14.00" fill="#555555">1230</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_0 -->
+<g id="edge1" class="edge">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_0:n</title>
+<path fill="none" stroke="black" d="M1011.75,-993.52C1011.75,-985.86 1011.75,-977.29 1011.75,-968.84"/>
+<polygon fill="black" stroke="black" points="1015.25,-969.01 1011.75,-959.01 1008.25,-969.01 1015.25,-969.01"/>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1230 -->
+<g id="node4" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1230</title>
+<polygon fill="#eeeeee" stroke="none" points="1174.5,-808 1174.5,-864.5 1791,-864.5 1791,-808 1174.5,-808"/>
+<polygon fill="none" stroke="black" points="1174.5,-842 1174.5,-864.5 1791,-864.5 1791,-842 1174.5,-842"/>
+<text xml:space="preserve" text-anchor="start" x="1177.5" y="-848.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 1230</text>
+<polygon fill="none" stroke="black" points="1174.5,-808 1174.5,-842 1791,-842 1791,-808 1174.5,-808"/>
+<text xml:space="preserve" text-anchor="start" x="1177.5" y="-826.7" font-family="monospace" font-size="14.00" fill="#555555">1230: </text>
+<text xml:space="preserve" text-anchor="start" x="1227" y="-826.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="1177.5" y="-812.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1231: </text>
+<text xml:space="preserve" text-anchor="start" x="1227" y="-812.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1243.5" y="-812.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_0&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1230 -->
+<g id="edge2" class="edge">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_0:e&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1230:n</title>
+<path fill="none" stroke="purple" stroke-width="2" stroke-dasharray="1,5" d="M1316.34,-931C1351.67,-931 1456.95,-912.6 1478.77,-880.44"/>
+<polygon fill="none" stroke="purple" stroke-width="2" points="1481.95,-881.97 1481.79,-871.37 1475.31,-879.75 1481.95,-881.97"/>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_5 -->
+<g id="node14" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_5</title>
+<polygon fill="#eeeeee" stroke="none" points="548.88,-808 548.88,-864.5 1140.62,-864.5 1140.62,-808 548.88,-808"/>
+<polygon fill="none" stroke="black" points="548.88,-842 548.88,-864.5 1140.62,-864.5 1140.62,-842 548.88,-842"/>
+<text xml:space="preserve" text-anchor="start" x="551.88" y="-848.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 5</text>
+<polygon fill="none" stroke="black" points="548.88,-808 548.88,-842 1140.62,-842 1140.62,-808 548.88,-808"/>
+<text xml:space="preserve" text-anchor="start" x="551.88" y="-826.7" font-family="monospace" font-size="14.00" fill="#555555">5: </text>
+<text xml:space="preserve" text-anchor="start" x="576.62" y="-826.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ComputedJump</text>
+<text xml:space="preserve" text-anchor="start" x="551.88" y="-812.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">6: </text>
+<text xml:space="preserve" text-anchor="start" x="576.62" y="-812.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="593.12" y="-812.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="725.12" y="-812.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="733.38" y="-812.7" font-family="monospace" font-size="14.00" fill="#006400">EntryPoint</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_0&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_5 -->
+<g id="edge3" class="edge">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_0&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_5:n</title>
+<path fill="none" stroke="black" d="M895.31,-904.58C874.32,-897.5 856.64,-889.01 848.91,-879.2"/>
+<polygon fill="black" stroke="black" points="852.19,-877.96 845.3,-869.91 845.66,-880.5 852.19,-877.96"/>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_15 -->
+<g id="node5" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_15</title>
+<polygon fill="#eeeeee" stroke="none" points="2547.5,-366 2547.5,-464.5 3362,-464.5 3362,-366 2547.5,-366"/>
+<polygon fill="none" stroke="black" points="2547.5,-442 2547.5,-464.5 3362,-464.5 3362,-442 2547.5,-442"/>
+<text xml:space="preserve" text-anchor="start" x="2657.75" y="-448.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 15</text>
+<polygon fill="none" stroke="black" points="2547.5,-366 2547.5,-442 3362,-442 3362,-366 2547.5,-366"/>
+<text xml:space="preserve" text-anchor="start" x="2550.5" y="-426.7" font-family="monospace" font-size="14.00" fill="#555555">15: </text>
+<text xml:space="preserve" text-anchor="start" x="2583.5" y="-426.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="2550.5" y="-412.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">16: </text>
+<text xml:space="preserve" text-anchor="start" x="2583.5" y="-412.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2600" y="-412.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2756.75" y="-412.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2765" y="-412.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_5_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="2550.5" y="-398.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">37: </text>
+<text xml:space="preserve" text-anchor="start" x="2583.5" y="-398.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2600" y="-398.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2732" y="-398.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2740.25" y="-398.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStartGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="2550.5" y="-384.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">46: </text>
+<text xml:space="preserve" text-anchor="start" x="2583.5" y="-384.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2616.5" y="-384.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="2550.5" y="-370.7" font-family="monospace" font-size="14.00" fill="#555555">48: </text>
+<text xml:space="preserve" text-anchor="start" x="2583.5" y="-370.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlow</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_335 -->
+<g id="node6" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_335</title>
+<polygon fill="#eeeeee" stroke="none" points="3552.25,-520 3552.25,-660.5 4581.25,-660.5 4581.25,-520 3552.25,-520"/>
+<polygon fill="none" stroke="black" points="3552.25,-638 3552.25,-660.5 4581.25,-660.5 4581.25,-638 3552.25,-638"/>
+<text xml:space="preserve" text-anchor="start" x="3765.62" y="-644.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 335</text>
+<polygon fill="none" stroke="black" points="3552.25,-520 3552.25,-638 4581.25,-638 4581.25,-520 3552.25,-520"/>
+<text xml:space="preserve" text-anchor="start" x="3555.25" y="-622.7" font-family="monospace" font-size="14.00" fill="#555555">335: </text>
+<text xml:space="preserve" text-anchor="start" x="3596.5" y="-622.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="3555.25" y="-608.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">336: </text>
+<text xml:space="preserve" text-anchor="start" x="3596.5" y="-608.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3613" y="-608.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3745" y="-608.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3753.25" y="-608.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_K2_SetActorRotation_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="3555.25" y="-594.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">345: </text>
+<text xml:space="preserve" text-anchor="start" x="3596.5" y="-594.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3613" y="-594.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="3555.25" y="-580.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">346: </text>
+<text xml:space="preserve" text-anchor="start" x="3596.5" y="-580.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3629.5" y="-580.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3786.25" y="-580.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3794.5" y="-580.7" font-family="monospace" font-size="14.00" fill="#006400">pearent_gimmick_icicle_01_area_a_outcircle_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="3555.25" y="-566.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">367: </text>
+<text xml:space="preserve" text-anchor="start" x="3596.5" y="-566.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3629.5" y="-566.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3761.5" y="-566.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3769.75" y="-566.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;Actor&#45;&gt;K2_SetActorRotation</text>
+<text xml:space="preserve" text-anchor="start" x="3555.25" y="-552.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">376: </text>
+<text xml:space="preserve" text-anchor="start" x="3596.5" y="-552.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3646" y="-552.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_RotationConst</text>
+<text xml:space="preserve" text-anchor="start" x="3778" y="-552.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3786.25" y="-552.7" font-family="monospace" font-size="14.00" fill="#0000cd">0,0,0</text>
+<text xml:space="preserve" text-anchor="start" x="3555.25" y="-538.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">389: </text>
+<text xml:space="preserve" text-anchor="start" x="3596.5" y="-538.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3646" y="-538.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="3555.25" y="-524.7" font-family="monospace" font-size="14.00" fill="#555555">391: </text>
+<text xml:space="preserve" text-anchor="start" x="3596.5" y="-524.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlow</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1225 -->
+<g id="node7" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1225</title>
+<polygon fill="#eeeeee" stroke="none" points="4739.25,-4 4739.25,-844.5 5570.25,-844.5 5570.25,-4 4739.25,-4"/>
+<polygon fill="none" stroke="black" points="4739.25,-822 4739.25,-844.5 5570.25,-844.5 5570.25,-822 4739.25,-822"/>
+<text xml:space="preserve" text-anchor="start" x="4849.5" y="-828.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 1225</text>
+<polygon fill="none" stroke="black" points="4739.25,-4 4739.25,-822 5570.25,-822 5570.25,-4 4739.25,-4"/>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-806.7" font-family="monospace" font-size="14.00" fill="#555555">1225: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-806.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="4849.5" y="-806.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4857.75" y="-806.7" font-family="monospace" font-size="14.00" fill="#555555">724</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-792.7" font-family="monospace" font-size="14.00" fill="#555555">724: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-792.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-778.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">725: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-778.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-778.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-778.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-778.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_1_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-764.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">746: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-764.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-764.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4932" y="-764.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4940.25" y="-764.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-750.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">755: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-750.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4816.5" y="-750.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-736.7" font-family="monospace" font-size="14.00" fill="#555555">757: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-736.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-722.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">758: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-722.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-722.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-722.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-722.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_2_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-708.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">779: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-708.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-708.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4932" y="-708.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4940.25" y="-708.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-694.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">788: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-694.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4816.5" y="-694.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-680.7" font-family="monospace" font-size="14.00" fill="#555555">790: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-680.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-666.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">791: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-666.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-666.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-666.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-666.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_3_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-652.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">812: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-652.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-652.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4932" y="-652.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4940.25" y="-652.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-638.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">821: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-638.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4816.5" y="-638.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-624.7" font-family="monospace" font-size="14.00" fill="#555555">823: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-624.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-610.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">824: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-610.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-610.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-610.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-610.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_4_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-596.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">845: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-596.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-596.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4932" y="-596.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4940.25" y="-596.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-582.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">854: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-582.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4816.5" y="-582.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-568.7" font-family="monospace" font-size="14.00" fill="#555555">856: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-568.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-554.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">857: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-554.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-554.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-554.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-554.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_5_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-540.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">878: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-540.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-540.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4932" y="-540.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4940.25" y="-540.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-526.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">887: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-526.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4816.5" y="-526.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-512.7" font-family="monospace" font-size="14.00" fill="#555555">889: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-512.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-498.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">890: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-498.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-498.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-498.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-498.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_6_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-484.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">911: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-484.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-484.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4932" y="-484.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4940.25" y="-484.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-470.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">920: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-470.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4816.5" y="-470.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-456.7" font-family="monospace" font-size="14.00" fill="#555555">922: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-456.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-442.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">923: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-442.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-442.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-442.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-442.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_7_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-428.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">944: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-428.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-428.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4932" y="-428.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4940.25" y="-428.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-414.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">953: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-414.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4816.5" y="-414.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-400.7" font-family="monospace" font-size="14.00" fill="#555555">955: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-400.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-386.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">956: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-386.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-386.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-386.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-386.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_1_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-372.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">977: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-372.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-372.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4948.5" y="-372.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-372.7" font-family="monospace" font-size="14.00" fill="#6a0080">SetActorHiddenInGame</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-358.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">990: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-358.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4816.5" y="-358.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-344.7" font-family="monospace" font-size="14.00" fill="#555555">992: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-344.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-330.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">993: </text>
+<text xml:space="preserve" text-anchor="start" x="4783.5" y="-330.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4800" y="-330.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-330.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-330.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_2_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-316.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1014: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-316.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4808.25" y="-316.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-316.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-316.7" font-family="monospace" font-size="14.00" fill="#6a0080">SetActorHiddenInGame</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-302.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1027: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-302.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4824.75" y="-302.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-288.7" font-family="monospace" font-size="14.00" fill="#555555">1029: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-288.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-274.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1030: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-274.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4808.25" y="-274.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-274.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4973.25" y="-274.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_3_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-260.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1051: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-260.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4808.25" y="-260.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-260.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-260.7" font-family="monospace" font-size="14.00" fill="#6a0080">SetActorHiddenInGame</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-246.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1064: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-246.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4824.75" y="-246.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-232.7" font-family="monospace" font-size="14.00" fill="#555555">1066: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-232.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-218.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1067: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-218.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4808.25" y="-218.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-218.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4973.25" y="-218.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_4_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-204.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1088: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-204.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4808.25" y="-204.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-204.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-204.7" font-family="monospace" font-size="14.00" fill="#6a0080">SetActorHiddenInGame</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-190.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1101: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-190.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4824.75" y="-190.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-176.7" font-family="monospace" font-size="14.00" fill="#555555">1103: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-176.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-162.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1104: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-162.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4808.25" y="-162.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-162.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4973.25" y="-162.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_5_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-148.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1125: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-148.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4808.25" y="-148.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-148.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-148.7" font-family="monospace" font-size="14.00" fill="#6a0080">SetActorHiddenInGame</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-134.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1138: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-134.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4824.75" y="-134.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-120.7" font-family="monospace" font-size="14.00" fill="#555555">1140: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-120.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-106.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1141: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-106.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4808.25" y="-106.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-106.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4973.25" y="-106.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_6_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-92.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1162: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-92.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4808.25" y="-92.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-92.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-92.7" font-family="monospace" font-size="14.00" fill="#6a0080">SetActorHiddenInGame</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-78.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1175: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-78.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4824.75" y="-78.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-64.7" font-family="monospace" font-size="14.00" fill="#555555">1177: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-64.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-50.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1178: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-50.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4808.25" y="-50.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-50.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4973.25" y="-50.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_7_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-36.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1199: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-36.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4808.25" y="-36.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4956.75" y="-36.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4965" y="-36.7" font-family="monospace" font-size="14.00" fill="#6a0080">SetActorHiddenInGame</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-22.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1212: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-22.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4824.75" y="-22.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="4742.25" y="-8.7" font-family="monospace" font-size="14.00" fill="#555555">1214: </text>
+<text xml:space="preserve" text-anchor="start" x="4791.75" y="-8.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlow</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1220 -->
+<g id="node8" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1220</title>
+<polygon fill="#eeeeee" stroke="none" points="5874.38,-492 5874.38,-716.5 6697.12,-716.5 6697.12,-492 5874.38,-492"/>
+<polygon fill="none" stroke="black" points="5874.38,-694 5874.38,-716.5 6697.12,-716.5 6697.12,-694 5874.38,-694"/>
+<text xml:space="preserve" text-anchor="start" x="5980.5" y="-700.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 1220</text>
+<polygon fill="none" stroke="black" points="5874.38,-492 5874.38,-694 6697.12,-694 6697.12,-492 5874.38,-492"/>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-678.7" font-family="monospace" font-size="14.00" fill="#555555">1220: </text>
+<text xml:space="preserve" text-anchor="start" x="5926.88" y="-678.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="5984.62" y="-678.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5992.88" y="-678.7" font-family="monospace" font-size="14.00" fill="#555555">624</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-664.7" font-family="monospace" font-size="14.00" fill="#555555">624: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-664.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-650.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">625: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-650.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5935.12" y="-650.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6091.88" y="-650.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6100.12" y="-650.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_1_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-636.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">646: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-636.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5935.12" y="-636.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6067.12" y="-636.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6075.38" y="-636.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStartGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-622.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">655: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-622.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5951.62" y="-622.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-608.7" font-family="monospace" font-size="14.00" fill="#555555">657: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-608.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-594.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">658: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-594.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5935.12" y="-594.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6091.88" y="-594.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6100.12" y="-594.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_3_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-580.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">679: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-580.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5935.12" y="-580.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6067.12" y="-580.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6075.38" y="-580.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStartGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-566.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">688: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-566.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5951.62" y="-566.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-552.7" font-family="monospace" font-size="14.00" fill="#555555">690: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-552.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-538.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">691: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-538.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5935.12" y="-538.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="6091.88" y="-538.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6100.12" y="-538.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_4_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-524.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">712: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-524.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5935.12" y="-524.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6067.12" y="-524.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6075.38" y="-524.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStartGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-510.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">721: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-510.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5951.62" y="-510.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="5877.38" y="-496.7" font-family="monospace" font-size="14.00" fill="#555555">723: </text>
+<text xml:space="preserve" text-anchor="start" x="5918.62" y="-496.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlow</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1215 -->
+<g id="node9" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1215</title>
+<polygon fill="#eeeeee" stroke="none" points="6175.5,-780.25 6175.5,-825.25 6792,-825.25 6792,-780.25 6175.5,-780.25"/>
+<polygon fill="none" stroke="black" points="6175.5,-802.75 6175.5,-825.25 6792,-825.25 6792,-802.75 6175.5,-802.75"/>
+<text xml:space="preserve" text-anchor="start" x="6178.5" y="-808.95" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 1215</text>
+<polygon fill="none" stroke="black" points="6175.5,-780.25 6175.5,-802.75 6792,-802.75 6792,-780.25 6175.5,-780.25"/>
+<text xml:space="preserve" text-anchor="start" x="6178.5" y="-787.45" font-family="monospace" font-size="14.00" fill="#555555">1215: </text>
+<text xml:space="preserve" text-anchor="start" x="6228" y="-787.45" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="6285.75" y="-787.45" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6294" y="-787.45" font-family="monospace" font-size="14.00" fill="#555555">624</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1215&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1220 -->
+<g id="edge4" class="edge">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1215&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1220:n</title>
+<path fill="none" stroke="black" d="M6321.61,-776.33C6303.58,-765.98 6290.35,-751.62 6286.74,-731.75"/>
+<polygon fill="black" stroke="black" points="6290.24,-731.66 6285.88,-722.01 6283.27,-732.28 6290.24,-731.66"/>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_392 -->
+<g id="node10" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_392</title>
+<polygon fill="#eeeeee" stroke="none" points="6929.38,-410 6929.38,-844.5 7752.12,-844.5 7752.12,-410 6929.38,-410"/>
+<polygon fill="none" stroke="black" points="6929.38,-822 6929.38,-844.5 7752.12,-844.5 7752.12,-822 6929.38,-822"/>
+<text xml:space="preserve" text-anchor="start" x="7039.62" y="-828.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 392</text>
+<polygon fill="none" stroke="black" points="6929.38,-410 6929.38,-822 7752.12,-822 7752.12,-410 6929.38,-410"/>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-806.7" font-family="monospace" font-size="14.00" fill="#555555">392: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-806.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-792.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">393: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-792.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-792.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="7146.88" y="-792.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7155.12" y="-792.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_4_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-778.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">414: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-778.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-778.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7122.12" y="-778.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7130.38" y="-778.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-764.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">423: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-764.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7006.62" y="-764.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-750.7" font-family="monospace" font-size="14.00" fill="#555555">425: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-750.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-736.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">426: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-736.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-736.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="7146.88" y="-736.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7155.12" y="-736.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_5_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-722.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">447: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-722.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-722.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7122.12" y="-722.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7130.38" y="-722.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-708.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">456: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-708.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7006.62" y="-708.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-694.7" font-family="monospace" font-size="14.00" fill="#555555">458: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-694.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-680.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">459: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-680.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-680.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="7146.88" y="-680.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7155.12" y="-680.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_1_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-666.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">480: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-666.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-666.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7122.12" y="-666.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7130.38" y="-666.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-652.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">489: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-652.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7006.62" y="-652.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-638.7" font-family="monospace" font-size="14.00" fill="#555555">491: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-638.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-624.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">492: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-624.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-624.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="7146.88" y="-624.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7155.12" y="-624.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_2_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-610.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">513: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-610.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-610.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7122.12" y="-610.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7130.38" y="-610.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-596.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">522: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-596.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7006.62" y="-596.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-582.7" font-family="monospace" font-size="14.00" fill="#555555">524: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-582.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-568.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">525: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-568.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-568.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="7146.88" y="-568.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7155.12" y="-568.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_3_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-554.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">546: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-554.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-554.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7122.12" y="-554.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7130.38" y="-554.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-540.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">555: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-540.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7006.62" y="-540.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-526.7" font-family="monospace" font-size="14.00" fill="#555555">557: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-526.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-512.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">558: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-512.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-512.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="7146.88" y="-512.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7155.12" y="-512.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_6_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-498.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">579: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-498.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-498.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7122.12" y="-498.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7130.38" y="-498.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-484.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">588: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-484.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7006.62" y="-484.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-470.7" font-family="monospace" font-size="14.00" fill="#555555">590: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-470.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-456.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">591: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-456.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-456.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="7146.88" y="-456.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7155.12" y="-456.7" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_7_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-442.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">612: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-442.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6990.12" y="-442.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7122.12" y="-442.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7130.38" y="-442.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStopGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-428.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">621: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-428.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7006.62" y="-428.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="6932.38" y="-414.7" font-family="monospace" font-size="14.00" fill="#555555">623: </text>
+<text xml:space="preserve" text-anchor="start" x="6973.62" y="-414.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlow</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_282 -->
+<g id="node11" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_282</title>
+<polygon fill="#eeeeee" stroke="none" points="3647.12,-704.5 3647.12,-845 4486.38,-845 4486.38,-704.5 3647.12,-704.5"/>
+<polygon fill="none" stroke="black" points="3647.12,-822.5 3647.12,-845 4486.38,-845 4486.38,-822.5 3647.12,-822.5"/>
+<text xml:space="preserve" text-anchor="start" x="3765.62" y="-828.7" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 282</text>
+<polygon fill="none" stroke="black" points="3647.12,-704.5 3647.12,-822.5 4486.38,-822.5 4486.38,-704.5 3647.12,-704.5"/>
+<text xml:space="preserve" text-anchor="start" x="3650.12" y="-807.2" font-family="monospace" font-size="14.00" fill="#555555">282: </text>
+<text xml:space="preserve" text-anchor="start" x="3691.38" y="-807.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="3650.12" y="-793.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">283: </text>
+<text xml:space="preserve" text-anchor="start" x="3691.38" y="-793.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3707.88" y="-793.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3839.88" y="-793.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3848.12" y="-793.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsTresBluePrintDebugMode_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="3650.12" y="-779.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">292: </text>
+<text xml:space="preserve" text-anchor="start" x="3691.38" y="-779.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3707.88" y="-779.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="3650.12" y="-765.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">293: </text>
+<text xml:space="preserve" text-anchor="start" x="3691.38" y="-765.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3724.38" y="-765.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="3839.88" y="-765.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3848.12" y="-765.2" font-family="monospace" font-size="14.00" fill="#006400">import /Script/TresGame&#45;&gt;Default__TresGameBlueprintLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="3650.12" y="-751.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">314: </text>
+<text xml:space="preserve" text-anchor="start" x="3691.38" y="-751.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3724.38" y="-751.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3856.38" y="-751.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3864.62" y="-751.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGameBlueprintLibrary&#45;&gt;IsTresBluePrintDebugMode</text>
+<text xml:space="preserve" text-anchor="start" x="3650.12" y="-737.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">323: </text>
+<text xml:space="preserve" text-anchor="start" x="3691.38" y="-737.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3740.88" y="-737.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="3650.12" y="-723.2" font-family="monospace" font-size="14.00" fill="#555555">325: </text>
+<text xml:space="preserve" text-anchor="start" x="3691.38" y="-723.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlowIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="3650.12" y="-709.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">326: </text>
+<text xml:space="preserve" text-anchor="start" x="3691.38" y="-709.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3707.88" y="-709.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3839.88" y="-709.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3848.12" y="-709.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_IsTresBluePrintDebugMode_ReturnValue</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_282&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_335 -->
+<g id="edge5" class="edge">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_282&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_335:n</title>
+<path fill="none" stroke="green" d="M4066.75,-700.59C4066.75,-692.39 4066.75,-684.05 4066.75,-675.89"/>
+<polygon fill="green" stroke="green" points="4070.25,-676.01 4066.75,-666.01 4063.25,-676.01 4070.25,-676.01"/>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_225 -->
+<g id="node12" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_225</title>
+<polygon fill="#eeeeee" stroke="none" points="7894.25,-704 7894.25,-844.5 8923.25,-844.5 8923.25,-704 7894.25,-704"/>
+<polygon fill="none" stroke="black" points="7894.25,-822 7894.25,-844.5 8923.25,-844.5 8923.25,-822 7894.25,-822"/>
+<text xml:space="preserve" text-anchor="start" x="8107.62" y="-828.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 225</text>
+<polygon fill="none" stroke="black" points="7894.25,-704 7894.25,-822 8923.25,-822 8923.25,-704 7894.25,-704"/>
+<text xml:space="preserve" text-anchor="start" x="7897.25" y="-806.7" font-family="monospace" font-size="14.00" fill="#555555">225: </text>
+<text xml:space="preserve" text-anchor="start" x="7938.5" y="-806.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="7897.25" y="-792.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">226: </text>
+<text xml:space="preserve" text-anchor="start" x="7938.5" y="-792.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7955" y="-792.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="8087" y="-792.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8095.25" y="-792.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_K2_SetActorRotation_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="7897.25" y="-778.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">235: </text>
+<text xml:space="preserve" text-anchor="start" x="7938.5" y="-778.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7955" y="-778.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="7897.25" y="-764.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">236: </text>
+<text xml:space="preserve" text-anchor="start" x="7938.5" y="-764.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7971.5" y="-764.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="8128.25" y="-764.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8136.5" y="-764.7" font-family="monospace" font-size="14.00" fill="#006400">pearent_gimmick_icicle_01_area_a_outcircle_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="7897.25" y="-750.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">257: </text>
+<text xml:space="preserve" text-anchor="start" x="7938.5" y="-750.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7971.5" y="-750.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="8103.5" y="-750.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8111.75" y="-750.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;Actor&#45;&gt;K2_SetActorRotation</text>
+<text xml:space="preserve" text-anchor="start" x="7897.25" y="-736.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">266: </text>
+<text xml:space="preserve" text-anchor="start" x="7938.5" y="-736.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7988" y="-736.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_RotationConst</text>
+<text xml:space="preserve" text-anchor="start" x="8120" y="-736.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="8128.25" y="-736.7" font-family="monospace" font-size="14.00" fill="#0000cd">0,30,0</text>
+<text xml:space="preserve" text-anchor="start" x="7897.25" y="-722.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">279: </text>
+<text xml:space="preserve" text-anchor="start" x="7938.5" y="-722.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7988" y="-722.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="7897.25" y="-708.7" font-family="monospace" font-size="14.00" fill="#555555">281: </text>
+<text xml:space="preserve" text-anchor="start" x="7938.5" y="-708.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlow</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_49 -->
+<g id="node13" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_49</title>
+<polygon fill="#eeeeee" stroke="none" points="1961.38,-508.5 1961.38,-845 2784.12,-845 2784.12,-508.5 1961.38,-508.5"/>
+<polygon fill="none" stroke="black" points="1961.38,-822.5 1961.38,-845 2784.12,-845 2784.12,-822.5 1961.38,-822.5"/>
+<text xml:space="preserve" text-anchor="start" x="2075.75" y="-828.7" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 49</text>
+<polygon fill="none" stroke="black" points="1961.38,-508.5 1961.38,-822.5 2784.12,-822.5 2784.12,-508.5 1961.38,-508.5"/>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-807.2" font-family="monospace" font-size="14.00" fill="#555555">49: </text>
+<text xml:space="preserve" text-anchor="start" x="1997.38" y="-807.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-793.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">50: </text>
+<text xml:space="preserve" text-anchor="start" x="1997.38" y="-793.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2013.88" y="-793.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2170.62" y="-793.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2178.88" y="-793.2" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_2_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-779.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">71: </text>
+<text xml:space="preserve" text-anchor="start" x="1997.38" y="-779.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2013.88" y="-779.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2145.88" y="-779.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2154.12" y="-779.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStartGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-765.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">80: </text>
+<text xml:space="preserve" text-anchor="start" x="1997.38" y="-765.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2030.38" y="-765.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-751.2" font-family="monospace" font-size="14.00" fill="#555555">82: </text>
+<text xml:space="preserve" text-anchor="start" x="1997.38" y="-751.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-737.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">83: </text>
+<text xml:space="preserve" text-anchor="start" x="1997.38" y="-737.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2013.88" y="-737.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2170.62" y="-737.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2178.88" y="-737.2" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_6_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-723.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">104: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-723.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2022.12" y="-723.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2154.12" y="-723.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2162.38" y="-723.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStartGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-709.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">113: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-709.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2038.62" y="-709.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-695.2" font-family="monospace" font-size="14.00" fill="#555555">115: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-695.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-681.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">116: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-681.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2022.12" y="-681.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2178.88" y="-681.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2187.12" y="-681.2" font-family="monospace" font-size="14.00" fill="#006400">g_fz_icepillar_02_7_ExecuteUbergraph_fz_02_gimmick_icicle_01_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-667.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">137: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-667.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2022.12" y="-667.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2154.12" y="-667.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2162.38" y="-667.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickActor&#45;&gt;RequestStartGimmickForPlan</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-653.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">146: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-653.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2038.62" y="-653.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-639.2" font-family="monospace" font-size="14.00" fill="#555555">148: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-639.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-625.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">149: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-625.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2022.12" y="-625.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="2137.62" y="-625.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2145.88" y="-625.2" font-family="monospace" font-size="14.00" fill="#006400">import /Script/TresGame&#45;&gt;Default__TresGameBlueprintLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-611.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">170: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-611.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2022.12" y="-611.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2154.12" y="-611.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2162.38" y="-611.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGameBlueprintLibrary&#45;&gt;TresDelay</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-597.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">179: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-597.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2038.62" y="-597.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-583.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">180: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-583.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2038.62" y="-583.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FloatConst</text>
+<text xml:space="preserve" text-anchor="start" x="2145.88" y="-583.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2154.12" y="-583.2" font-family="monospace" font-size="14.00" fill="#0000cd">2</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-569.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">185: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-569.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2038.62" y="-569.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructConst</text>
+<text xml:space="preserve" text-anchor="start" x="2154.12" y="-569.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2162.38" y="-569.2" font-family="monospace" font-size="14.00" fill="#996300">import /Script/Engine&#45;&gt;LatentActionInfo</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-555.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">198: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-555.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2055.12" y="-555.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_SkipOffsetConst</text>
+<text xml:space="preserve" text-anchor="start" x="2203.62" y="-555.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2211.88" y="-555.2" font-family="monospace" font-size="14.00" fill="#555555">15</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-541.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">203: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-541.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2055.12" y="-541.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="2145.88" y="-541.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2154.12" y="-541.2" font-family="monospace" font-size="14.00" fill="#0000cd">1154302165</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-527.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">208: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-527.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2055.12" y="-527.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_NameConst</text>
+<text xml:space="preserve" text-anchor="start" x="2154.12" y="-527.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2162.38" y="-527.2" font-family="monospace" font-size="14.00" fill="#006400">ExecuteUbergraph_fz_02_gimmick_icicle_01</text>
+<text xml:space="preserve" text-anchor="start" x="1964.38" y="-513.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">221: </text>
+<text xml:space="preserve" text-anchor="start" x="2005.62" y="-513.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2055.12" y="-513.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_49&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_15 -->
+<g id="edge6" class="edge">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_49:e&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_15:n</title>
+<path fill="none" stroke="orange" stroke-dasharray="5,2" d="M2793,-676.75C2906.42,-676.75 2951.8,-591.47 2954.61,-479.75"/>
+<polygon fill="none" stroke="orange" points="2958.11,-480.06 2954.73,-470.01 2951.11,-479.97 2958.11,-480.06"/>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_224 -->
+<g id="node15" class="node">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_224</title>
+<polygon fill="#eeeeee" stroke="none" points="1905.62,-392.75 1905.62,-437.75 2513.87,-437.75 2513.87,-392.75 1905.62,-392.75"/>
+<polygon fill="none" stroke="black" points="1905.62,-415.25 1905.62,-437.75 2513.87,-437.75 2513.87,-415.25 1905.62,-415.25"/>
+<text xml:space="preserve" text-anchor="start" x="1908.62" y="-421.45" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ExecuteUbergraph_fz_02_gimmick_icicle_01 @ 224</text>
+<polygon fill="none" stroke="black" points="1905.62,-392.75 1905.62,-415.25 2513.87,-415.25 2513.87,-392.75 1905.62,-392.75"/>
+<text xml:space="preserve" text-anchor="start" x="1908.62" y="-399.95" font-family="monospace" font-size="14.00" fill="#555555">224: </text>
+<text xml:space="preserve" text-anchor="start" x="1949.87" y="-399.95" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlow</text>
+</g>
+<!-- ExecuteUbergraph_fz_02_gimmick_icicle_01__block_49&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_224 -->
+<g id="edge7" class="edge">
+<title>ExecuteUbergraph_fz_02_gimmick_icicle_01__block_49&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_224:n</title>
+<path fill="none" stroke="black" d="M2222.14,-504.59C2215.79,-488.33 2211.52,-471.42 2210.19,-454.07"/>
+<polygon fill="black" stroke="black" points="2213.69,-453.98 2209.81,-444.13 2206.7,-454.25 2213.69,-453.98"/>
+</g>
+<!-- fz_02_gameflow_RGim_icicle_01_Hide -->
+<g id="node16" class="node">
+<title>fz_02_gameflow_RGim_icicle_01_Hide</title>
+<polygon fill="#ffd4d4" stroke="none" points="4696.38,-1019.75 4696.38,-1042.25 5057.12,-1042.25 5057.12,-1019.75 4696.38,-1019.75"/>
+<polygon fill="none" stroke="black" points="4696.38,-1019.75 4696.38,-1042.25 5057.12,-1042.25 5057.12,-1019.75 4696.38,-1019.75"/>
+<text xml:space="preserve" text-anchor="start" x="4699.38" y="-1026.95" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="4765.38" y="-1026.95" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4773.62" y="-1026.95" font-family="monospace" font-size="14.00" fill="#6a0080">fz_02_gameflow_RGim_icicle_01_Hide</text>
+</g>
+<!-- fz_02_gameflow_RGim_icicle_01_Hide__block_0 -->
+<g id="node17" class="node">
+<title>fz_02_gameflow_RGim_icicle_01_Hide__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="4605.62,-888.5 4605.62,-973 5147.88,-973 5147.88,-888.5 4605.62,-888.5"/>
+<polygon fill="none" stroke="black" points="4605.62,-950.5 4605.62,-973 5147.88,-973 5147.88,-950.5 4605.62,-950.5"/>
+<text xml:space="preserve" text-anchor="start" x="4608.62" y="-956.7" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::fz_02_gameflow_RGim_icicle_01_Hide @ 0</text>
+<polygon fill="none" stroke="black" points="4605.62,-888.5 4605.62,-950.5 5147.88,-950.5 5147.88,-888.5 4605.62,-888.5"/>
+<text xml:space="preserve" text-anchor="start" x="4608.62" y="-935.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="4633.38" y="-935.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4781.88" y="-935.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4790.12" y="-935.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_fz_02_gimmick_icicle_01</text>
+<text xml:space="preserve" text-anchor="start" x="4608.62" y="-921.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="4641.62" y="-921.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4658.12" y="-921.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="4748.88" y="-921.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4757.12" y="-921.2" font-family="monospace" font-size="14.00" fill="#0000cd">1225</text>
+<text xml:space="preserve" text-anchor="start" x="4608.62" y="-907.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="4641.62" y="-907.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="4608.62" y="-893.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="4641.62" y="-893.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4658.12" y="-893.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- fz_02_gameflow_RGim_icicle_01_Hide&#45;&gt;fz_02_gameflow_RGim_icicle_01_Hide__block_0 -->
+<g id="edge8" class="edge">
+<title>fz_02_gameflow_RGim_icicle_01_Hide&#45;&gt;fz_02_gameflow_RGim_icicle_01_Hide__block_0:n</title>
+<path fill="none" stroke="black" d="M4876.75,-1013.29C4876.75,-1006.04 4876.75,-997.2 4876.75,-988.4"/>
+<polygon fill="black" stroke="black" points="4880.25,-988.51 4876.75,-978.51 4873.25,-988.51 4880.25,-988.51"/>
+</g>
+<!-- fz_02_gameflow_RGim_icicle_01_Hide__block_0&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1225 -->
+<g id="edge9" class="edge">
+<title>fz_02_gameflow_RGim_icicle_01_Hide__block_0:e&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1225:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M5156.61,-930.75C5189.18,-930.75 5162.26,-894.51 5155.98,-860.75"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="5154.99,-850.92 5160.47,-860.42 5155.75,-853.43 5156.49,-860.82 5155.99,-860.87 5155.5,-860.92 5154.75,-853.52 5151.52,-861.32 5154.99,-850.92"/>
+</g>
+<!-- fz_02_ms030r_Ice02_BattleStart -->
+<g id="node18" class="node">
+<title>fz_02_ms030r_Ice02_BattleStart</title>
+<polygon fill="#ffd4d4" stroke="none" points="5627.88,-920 5627.88,-942.5 5955.62,-942.5 5955.62,-920 5627.88,-920"/>
+<polygon fill="none" stroke="black" points="5627.88,-920 5627.88,-942.5 5955.62,-942.5 5955.62,-920 5627.88,-920"/>
+<text xml:space="preserve" text-anchor="start" x="5630.88" y="-927.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="5696.88" y="-927.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5705.12" y="-927.2" font-family="monospace" font-size="14.00" fill="#6a0080">fz_02_ms030r_Ice02_BattleStart</text>
+</g>
+<!-- fz_02_ms030r_Ice02_BattleStart__block_0 -->
+<g id="node19" class="node">
+<title>fz_02_ms030r_Ice02_BattleStart__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="5594,-760.5 5594,-845 6111.5,-845 6111.5,-760.5 5594,-760.5"/>
+<polygon fill="none" stroke="black" points="5594,-822.5 5594,-845 6111.5,-845 6111.5,-822.5 5594,-822.5"/>
+<text xml:space="preserve" text-anchor="start" x="5601.12" y="-828.7" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::fz_02_ms030r_Ice02_BattleStart @ 0</text>
+<polygon fill="none" stroke="black" points="5594,-760.5 5594,-822.5 6111.5,-822.5 6111.5,-760.5 5594,-760.5"/>
+<text xml:space="preserve" text-anchor="start" x="5597" y="-807.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="5621.75" y="-807.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="5770.25" y="-807.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5778.5" y="-807.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_fz_02_gimmick_icicle_01</text>
+<text xml:space="preserve" text-anchor="start" x="5597" y="-793.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="5630" y="-793.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5646.5" y="-793.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="5737.25" y="-793.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="5745.5" y="-793.2" font-family="monospace" font-size="14.00" fill="#0000cd">1220</text>
+<text xml:space="preserve" text-anchor="start" x="5597" y="-779.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="5630" y="-779.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="5597" y="-765.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="5630" y="-765.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="5646.5" y="-765.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- fz_02_ms030r_Ice02_BattleStart&#45;&gt;fz_02_ms030r_Ice02_BattleStart__block_0 -->
+<g id="edge10" class="edge">
+<title>fz_02_ms030r_Ice02_BattleStart&#45;&gt;fz_02_ms030r_Ice02_BattleStart__block_0:n</title>
+<path fill="none" stroke="black" d="M5814.81,-913.31C5829.59,-900.64 5846.85,-881.82 5851.53,-860.19"/>
+<polygon fill="black" stroke="black" points="5854.98,-860.83 5852.59,-850.5 5848.02,-860.07 5854.98,-860.83"/>
+</g>
+<!-- fz_02_ms030r_Ice02_BattleStart__block_0&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1220 -->
+<g id="edge11" class="edge">
+<title>fz_02_ms030r_Ice02_BattleStart__block_0:e&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1220:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M6120.25,-802.75C6146.99,-802.75 6136.32,-771.08 6158.75,-756.5 6203.9,-727.15 6273.18,-770.79 6284.24,-732.76"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="6285.45,-722.92 6288.69,-733.39 6285.63,-725.52 6284.72,-732.9 6284.23,-732.84 6283.73,-732.78 6284.64,-725.4 6279.76,-732.29 6285.45,-722.92"/>
+</g>
+<!-- fz_02_ms030s_Ice02_BattleStart -->
+<g id="node20" class="node">
+<title>fz_02_ms030s_Ice02_BattleStart</title>
+<polygon fill="#ffd4d4" stroke="none" points="6084.88,-1020.25 6084.88,-1042.75 6412.62,-1042.75 6412.62,-1020.25 6084.88,-1020.25"/>
+<polygon fill="none" stroke="black" points="6084.88,-1020.25 6084.88,-1042.75 6412.62,-1042.75 6412.62,-1020.25 6084.88,-1020.25"/>
+<text xml:space="preserve" text-anchor="start" x="6087.88" y="-1027.45" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="6153.88" y="-1027.45" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6162.12" y="-1027.45" font-family="monospace" font-size="14.00" fill="#6a0080">fz_02_ms030s_Ice02_BattleStart</text>
+</g>
+<!-- fz_02_ms030s_Ice02_BattleStart__block_0 -->
+<g id="node21" class="node">
+<title>fz_02_ms030s_Ice02_BattleStart__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="5990,-889 5990,-973.5 6507.5,-973.5 6507.5,-889 5990,-889"/>
+<polygon fill="none" stroke="black" points="5990,-951 5990,-973.5 6507.5,-973.5 6507.5,-951 5990,-951"/>
+<text xml:space="preserve" text-anchor="start" x="5997.12" y="-957.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::fz_02_ms030s_Ice02_BattleStart @ 0</text>
+<polygon fill="none" stroke="black" points="5990,-889 5990,-951 6507.5,-951 6507.5,-889 5990,-889"/>
+<text xml:space="preserve" text-anchor="start" x="5993" y="-935.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="6017.75" y="-935.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6166.25" y="-935.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6174.5" y="-935.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_fz_02_gimmick_icicle_01</text>
+<text xml:space="preserve" text-anchor="start" x="5993" y="-921.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="6026" y="-921.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6042.5" y="-921.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="6133.25" y="-921.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6141.5" y="-921.7" font-family="monospace" font-size="14.00" fill="#0000cd">1215</text>
+<text xml:space="preserve" text-anchor="start" x="5993" y="-907.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="6026" y="-907.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="5993" y="-893.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="6026" y="-893.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6042.5" y="-893.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- fz_02_ms030s_Ice02_BattleStart&#45;&gt;fz_02_ms030s_Ice02_BattleStart__block_0 -->
+<g id="edge12" class="edge">
+<title>fz_02_ms030s_Ice02_BattleStart&#45;&gt;fz_02_ms030s_Ice02_BattleStart__block_0:n</title>
+<path fill="none" stroke="black" d="M6248.75,-1013.79C6248.75,-1006.54 6248.75,-997.7 6248.75,-988.9"/>
+<polygon fill="black" stroke="black" points="6252.25,-989.01 6248.75,-979.01 6245.25,-989.01 6252.25,-989.01"/>
+</g>
+<!-- fz_02_ms030s_Ice02_BattleStart__block_0&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1215 -->
+<g id="edge13" class="edge">
+<title>fz_02_ms030s_Ice02_BattleStart__block_0:e&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_1215:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M6516.25,-931.25C6536.81,-931.25 6520.76,-904.81 6515.25,-885 6509.01,-862.58 6491.5,-858.96 6485.67,-842.42"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="6484.13,-832.58 6490.12,-841.76 6485.02,-835.03 6486.17,-842.38 6485.67,-842.46 6485.18,-842.54 6484.03,-835.19 6481.23,-843.15 6484.13,-832.58"/>
+</g>
+<!-- ReceiveBeginPlay -->
+<g id="node22" class="node">
+<title>ReceiveBeginPlay</title>
+<polygon fill="#ffd4d4" stroke="none" points="6968.62,-1019.75 6968.62,-1042.25 7180.88,-1042.25 7180.88,-1019.75 6968.62,-1019.75"/>
+<polygon fill="none" stroke="black" points="6968.62,-1019.75 6968.62,-1042.25 7180.88,-1042.25 7180.88,-1019.75 6968.62,-1019.75"/>
+<text xml:space="preserve" text-anchor="start" x="6971.62" y="-1026.95" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="7037.62" y="-1026.95" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7045.88" y="-1026.95" font-family="monospace" font-size="14.00" fill="#6a0080">ReceiveBeginPlay</text>
+</g>
+<!-- ReceiveBeginPlay__block_0 -->
+<g id="node23" class="node">
+<title>ReceiveBeginPlay__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="6816,-888.5 6816,-973 7333.5,-973 7333.5,-888.5 6816,-888.5"/>
+<polygon fill="none" stroke="black" points="6816,-950.5 6816,-973 7333.5,-973 7333.5,-950.5 6816,-950.5"/>
+<text xml:space="preserve" text-anchor="start" x="6880.88" y="-956.7" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::ReceiveBeginPlay @ 0</text>
+<polygon fill="none" stroke="black" points="6816,-888.5 6816,-950.5 7333.5,-950.5 7333.5,-888.5 6816,-888.5"/>
+<text xml:space="preserve" text-anchor="start" x="6819" y="-935.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="6843.75" y="-935.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="6992.25" y="-935.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7000.5" y="-935.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_fz_02_gimmick_icicle_01</text>
+<text xml:space="preserve" text-anchor="start" x="6819" y="-921.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="6852" y="-921.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6868.5" y="-921.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="6959.25" y="-921.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="6967.5" y="-921.2" font-family="monospace" font-size="14.00" fill="#0000cd">392</text>
+<text xml:space="preserve" text-anchor="start" x="6819" y="-907.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="6852" y="-907.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="6819" y="-893.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="6852" y="-893.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="6868.5" y="-893.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ReceiveBeginPlay&#45;&gt;ReceiveBeginPlay__block_0 -->
+<g id="edge14" class="edge">
+<title>ReceiveBeginPlay&#45;&gt;ReceiveBeginPlay__block_0:n</title>
+<path fill="none" stroke="black" d="M7074.75,-1013.29C7074.75,-1006.04 7074.75,-997.2 7074.75,-988.4"/>
+<polygon fill="black" stroke="black" points="7078.25,-988.51 7074.75,-978.51 7071.25,-988.51 7078.25,-988.51"/>
+</g>
+<!-- ReceiveBeginPlay__block_0&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_392 -->
+<g id="edge15" class="edge">
+<title>ReceiveBeginPlay__block_0:e&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_392:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M7342.25,-930.75C7374.81,-930.75 7348.18,-894.51 7341.97,-860.75"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="7340.99,-850.92 7346.46,-860.43 7341.74,-853.43 7342.48,-860.83 7341.98,-860.88 7341.48,-860.93 7340.75,-853.52 7337.5,-861.32 7340.99,-850.92"/>
+</g>
+<!-- debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle -->
+<g id="node24" class="node">
+<title>debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle</title>
+<polygon fill="#ffd4d4" stroke="none" points="3476.38,-1020.25 3476.38,-1042.75 3969.12,-1042.75 3969.12,-1020.25 3476.38,-1020.25"/>
+<polygon fill="none" stroke="black" points="3476.38,-1020.25 3476.38,-1042.75 3969.12,-1042.75 3969.12,-1020.25 3476.38,-1020.25"/>
+<text xml:space="preserve" text-anchor="start" x="3479.38" y="-1027.45" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="3545.38" y="-1027.45" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3553.62" y="-1027.45" font-family="monospace" font-size="14.00" fill="#6a0080">debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle</text>
+</g>
+<!-- debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0 -->
+<g id="node25" class="node">
+<title>debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="3385.62,-889 3385.62,-973.5 4059.88,-973.5 4059.88,-889 3385.62,-889"/>
+<polygon fill="none" stroke="black" points="3385.62,-951 3385.62,-973.5 4059.88,-973.5 4059.88,-951 3385.62,-951"/>
+<text xml:space="preserve" text-anchor="start" x="3388.62" y="-957.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle @ 0</text>
+<polygon fill="none" stroke="black" points="3385.62,-889 3385.62,-951 4059.88,-951 4059.88,-889 3385.62,-889"/>
+<text xml:space="preserve" text-anchor="start" x="3388.62" y="-935.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="3413.38" y="-935.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3561.88" y="-935.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3570.12" y="-935.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_fz_02_gimmick_icicle_01</text>
+<text xml:space="preserve" text-anchor="start" x="3388.62" y="-921.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="3421.62" y="-921.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3438.12" y="-921.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="3528.88" y="-921.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3537.12" y="-921.7" font-family="monospace" font-size="14.00" fill="#0000cd">282</text>
+<text xml:space="preserve" text-anchor="start" x="3388.62" y="-907.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="3421.62" y="-907.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="3388.62" y="-893.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="3421.62" y="-893.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3438.12" y="-893.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle&#45;&gt;debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0 -->
+<g id="edge16" class="edge">
+<title>debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle&#45;&gt;debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0:n</title>
+<path fill="none" stroke="black" d="M3722.75,-1013.79C3722.75,-1006.54 3722.75,-997.7 3722.75,-988.9"/>
+<polygon fill="black" stroke="black" points="3726.25,-989.01 3722.75,-979.01 3719.25,-989.01 3726.25,-989.01"/>
+</g>
+<!-- debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_282 -->
+<g id="edge17" class="edge">
+<title>debug_fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0:e&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_282:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M4068.55,-931.25C4101.11,-931.25 4074.25,-895.01 4067.98,-861.25"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="4066.99,-851.42 4072.47,-860.93 4067.75,-853.93 4068.49,-861.32 4067.99,-861.37 4067.49,-861.42 4066.75,-854.02 4063.51,-861.82 4066.99,-851.42"/>
+</g>
+<!-- fz_02_gameflow_RGim_MapMove_area_a_outcircle -->
+<g id="node26" class="node">
+<title>fz_02_gameflow_RGim_MapMove_area_a_outcircle</title>
+<polygon fill="#ffd4d4" stroke="none" points="7867.12,-1019.75 7867.12,-1042.25 8310.38,-1042.25 8310.38,-1019.75 7867.12,-1019.75"/>
+<polygon fill="none" stroke="black" points="7867.12,-1019.75 7867.12,-1042.25 8310.38,-1042.25 8310.38,-1019.75 7867.12,-1019.75"/>
+<text xml:space="preserve" text-anchor="start" x="7870.12" y="-1026.95" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="7936.12" y="-1026.95" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7944.38" y="-1026.95" font-family="monospace" font-size="14.00" fill="#6a0080">fz_02_gameflow_RGim_MapMove_area_a_outcircle</text>
+</g>
+<!-- fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0 -->
+<g id="node27" class="node">
+<title>fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="7776.38,-888.5 7776.38,-973 8401.12,-973 8401.12,-888.5 7776.38,-888.5"/>
+<polygon fill="none" stroke="black" points="7776.38,-950.5 7776.38,-973 8401.12,-973 8401.12,-950.5 7776.38,-950.5"/>
+<text xml:space="preserve" text-anchor="start" x="7779.38" y="-956.7" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::fz_02_gameflow_RGim_MapMove_area_a_outcircle @ 0</text>
+<polygon fill="none" stroke="black" points="7776.38,-888.5 7776.38,-950.5 8401.12,-950.5 8401.12,-888.5 7776.38,-888.5"/>
+<text xml:space="preserve" text-anchor="start" x="7779.38" y="-935.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="7804.12" y="-935.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="7952.62" y="-935.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7960.88" y="-935.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_fz_02_gimmick_icicle_01</text>
+<text xml:space="preserve" text-anchor="start" x="7779.38" y="-921.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="7812.38" y="-921.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7828.88" y="-921.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="7919.62" y="-921.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="7927.88" y="-921.2" font-family="monospace" font-size="14.00" fill="#0000cd">225</text>
+<text xml:space="preserve" text-anchor="start" x="7779.38" y="-907.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="7812.38" y="-907.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="7779.38" y="-893.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="7812.38" y="-893.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="7828.88" y="-893.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- fz_02_gameflow_RGim_MapMove_area_a_outcircle&#45;&gt;fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0 -->
+<g id="edge18" class="edge">
+<title>fz_02_gameflow_RGim_MapMove_area_a_outcircle&#45;&gt;fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0:n</title>
+<path fill="none" stroke="black" d="M8088.75,-1013.29C8088.75,-1006.04 8088.75,-997.2 8088.75,-988.4"/>
+<polygon fill="black" stroke="black" points="8092.25,-988.51 8088.75,-978.51 8085.25,-988.51 8092.25,-988.51"/>
+</g>
+<!-- fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_225 -->
+<g id="edge19" class="edge">
+<title>fz_02_gameflow_RGim_MapMove_area_a_outcircle__block_0:e&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_225:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M8409.82,-930.75C8442.38,-930.75 8416.09,-894.51 8409.95,-860.75"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="8408.99,-850.93 8414.45,-860.44 8409.74,-853.43 8410.46,-860.83 8409.97,-860.88 8409.47,-860.93 8408.74,-853.52 8405.49,-861.32 8408.99,-850.93"/>
+</g>
+<!-- fz_02_gameflow_RGim_icicle_01_Start -->
+<g id="node28" class="node">
+<title>fz_02_gameflow_RGim_icicle_01_Start</title>
+<polygon fill="#ffd4d4" stroke="none" points="1906.25,-1020.25 1906.25,-1042.75 2275.25,-1042.75 2275.25,-1020.25 1906.25,-1020.25"/>
+<polygon fill="none" stroke="black" points="1906.25,-1020.25 1906.25,-1042.75 2275.25,-1042.75 2275.25,-1020.25 1906.25,-1020.25"/>
+<text xml:space="preserve" text-anchor="start" x="1909.25" y="-1027.45" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="1975.25" y="-1027.45" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1983.5" y="-1027.45" font-family="monospace" font-size="14.00" fill="#6a0080">fz_02_gameflow_RGim_icicle_01_Start</text>
+</g>
+<!-- fz_02_gameflow_RGim_icicle_01_Start__block_0 -->
+<g id="node29" class="node">
+<title>fz_02_gameflow_RGim_icicle_01_Start__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="1815.5,-889 1815.5,-973.5 2366,-973.5 2366,-889 1815.5,-889"/>
+<polygon fill="none" stroke="black" points="1815.5,-951 1815.5,-973.5 2366,-973.5 2366,-951 1815.5,-951"/>
+<text xml:space="preserve" text-anchor="start" x="1818.5" y="-957.2" font-family="monospace" font-size="14.00">fz_02_gimmick_icicle_01_C::fz_02_gameflow_RGim_icicle_01_Start @ 0</text>
+<polygon fill="none" stroke="black" points="1815.5,-889 1815.5,-951 2366,-951 2366,-889 1815.5,-889"/>
+<text xml:space="preserve" text-anchor="start" x="1818.5" y="-935.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="1843.25" y="-935.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1991.75" y="-935.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2000" y="-935.7" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_fz_02_gimmick_icicle_01</text>
+<text xml:space="preserve" text-anchor="start" x="1818.5" y="-921.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="1851.5" y="-921.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1868" y="-921.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1958.75" y="-921.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1967" y="-921.7" font-family="monospace" font-size="14.00" fill="#0000cd">49</text>
+<text xml:space="preserve" text-anchor="start" x="1818.5" y="-907.7" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="1851.5" y="-907.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="1818.5" y="-893.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="1851.5" y="-893.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1868" y="-893.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- fz_02_gameflow_RGim_icicle_01_Start&#45;&gt;fz_02_gameflow_RGim_icicle_01_Start__block_0 -->
+<g id="edge20" class="edge">
+<title>fz_02_gameflow_RGim_icicle_01_Start&#45;&gt;fz_02_gameflow_RGim_icicle_01_Start__block_0:n</title>
+<path fill="none" stroke="black" d="M2090.75,-1013.79C2090.75,-1006.54 2090.75,-997.7 2090.75,-988.9"/>
+<polygon fill="black" stroke="black" points="2094.25,-989.01 2090.75,-979.01 2087.25,-989.01 2094.25,-989.01"/>
+</g>
+<!-- fz_02_gameflow_RGim_icicle_01_Start__block_0&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_49 -->
+<g id="edge21" class="edge">
+<title>fz_02_gameflow_RGim_icicle_01_Start__block_0:e&#45;&gt;ExecuteUbergraph_fz_02_gimmick_icicle_01__block_49:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M2374.73,-931.25C2407.3,-931.25 2380.28,-895.01 2373.98,-861.25"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="2372.99,-851.42 2378.47,-860.92 2373.75,-853.92 2374.49,-861.32 2374,-861.37 2373.5,-861.42 2372.75,-854.02 2369.52,-861.83 2372.99,-851.42"/>
+</g>
+</g>
+</svg>
+</div>
+    </div>
+  </div>
+
+  <div id="minimap">
+    <div id="minimap-content">
+      <canvas id="minimap-canvas"></canvas>
+      <div id="minimap-viewport"></div>
+    </div>
+  </div>
+
+  <div id="hint">
+    <kbd>Wheel</kbd> zoom &nbsp;
+    <kbd>Drag</kbd> pan
+  </div>
+
+  <div id="drop-overlay">Drop SVG file here</div>
+
+  <script>
+    const fileInput = document.getElementById('file-input');
+    const viewport = document.getElementById('viewport');
+    const svgWrapper = document.getElementById('svg-wrapper');
+    const svgContainer = document.getElementById('svg-container');
+    const zoomLevelEl = document.getElementById('zoom-level');
+    const searchInput = document.getElementById('search-input');
+    const searchInfo = document.getElementById('search-info');
+    const emptyState = document.getElementById('empty-state');
+    const dropOverlay = document.getElementById('drop-overlay');
+    const darkModeToggle = document.getElementById('dark-mode-toggle');
+    const minimapToggle = document.getElementById('minimap-toggle');
+    const minimap = document.getElementById('minimap');
+    const minimapContent = document.getElementById('minimap-content');
+    const minimapCanvas = document.getElementById('minimap-canvas');
+    const minimapViewport = document.getElementById('minimap-viewport');
+
+    let scale = 1;
+    let darkMode = false;
+    let minimapVisible = true;
+    let svgElement = null;
+    let svgWidth = 0;
+    let svgHeight = 0;
+    let minimapImageData = null; // Cached rasterized SVG
+
+    // Panning state
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let scrollStartX = 0;
+    let scrollStartY = 0;
+
+    // Minimap drag state
+    let isMinimapDragging = false;
+    let minimapDragOffsetX = 0;
+    let minimapDragOffsetY = 0;
+
+    // Search state
+    let searchMatches = [];
+    let currentMatchIndex = -1;
+    let highlightGroup = null;
+    let searchDebounceTimer = null;
+
+    const MIN_SCALE = 0.1;
+    const MAX_SCALE = 5;
+
+    // === File Loading ===
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) loadSvgFile(file);
+    });
+
+    // Examples dropdowns (toolbar and empty state)
+    const exampleFiles = [
+      'vm_flow.svg',
+      'PLS_Base.svg',
+      'dominion.svg',
+      'blueprint.svg'
+    ];
+
+    document.querySelectorAll('.examples-select').forEach(select => {
+      // Populate options
+      exampleFiles.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file;
+        option.textContent = file;
+        select.appendChild(option);
+      });
+
+      // Handle selection
+      select.addEventListener('change', async (e) => {
+        const file = e.target.value;
+        if (!file) return;
+
+        try {
+          const response = await fetch(`examples/${file}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${file}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+
+        // Reset dropdown to placeholder
+        select.value = '';
+      });
+    });
+
+    // Empty state file button
+    document.getElementById('empty-file-btn').addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    // Drag and drop
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.add('active');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      if (e.target === dropOverlay) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.remove('active');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.svg')) {
+        loadSvgFile(file);
+      }
+    });
+
+    function loadSvgFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const svgText = e.target.result;
+        loadSvgContent(svgText);
+        document.title = `SVG Viewer - ${file.name}`;
+      };
+      reader.readAsText(file);
+    }
+
+    function loadSvgContent(svgText) {
+      // Clear previous content
+      svgContainer.innerHTML = svgText;
+      svgElement = svgContainer.querySelector('svg');
+
+      if (!svgElement) {
+        alert('Invalid SVG file');
+        return;
+      }
+
+      // Show viewport, hide empty state
+      emptyState.classList.add('hidden');
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap
+      initMinimap(svgText);
+    }
+
+    // === Zoom Controls ===
+
+    document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.25));
+    document.getElementById('zoom-out').addEventListener('click', () => zoomBy(0.8));
+    document.getElementById('zoom-reset').addEventListener('click', () => setZoom(1));
+
+    // === Dark Mode Toggle ===
+
+    darkModeToggle.addEventListener('click', toggleDarkMode);
+
+    function toggleDarkMode() {
+      darkMode = !darkMode;
+      svgContainer.classList.toggle('dark-mode', darkMode);
+      minimapContent.classList.toggle('dark-mode', darkMode);
+      darkModeToggle.classList.toggle('active', darkMode);
+    }
+
+    // === Minimap ===
+
+    minimapToggle.addEventListener('click', toggleMinimap);
+
+    function toggleMinimap() {
+      minimapVisible = !minimapVisible;
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+    }
+
+    function initMinimap(svgText) {
+      // Calculate minimap size to fit within bounds while preserving aspect ratio
+      const maxWidth = 400;
+      const maxHeight = 600;
+      const aspectRatio = svgWidth / svgHeight;
+
+      let mmWidth, mmHeight;
+      if (aspectRatio > maxWidth / maxHeight) {
+        // Width constrained
+        mmWidth = maxWidth;
+        mmHeight = maxWidth / aspectRatio;
+      } else {
+        // Height constrained
+        mmHeight = maxHeight;
+        mmWidth = maxHeight * aspectRatio;
+      }
+
+      minimap.style.width = mmWidth + 'px';
+      minimap.style.height = mmHeight + 'px';
+
+      // Set canvas size (use higher resolution for retina displays)
+      const dpr = window.devicePixelRatio || 1;
+      minimapCanvas.width = mmWidth * dpr;
+      minimapCanvas.height = mmHeight * dpr;
+      minimapCanvas.style.width = mmWidth + 'px';
+      minimapCanvas.style.height = mmHeight + 'px';
+
+      // Show minimap
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+
+      // Sync dark mode
+      minimapContent.classList.toggle('dark-mode', darkMode);
+
+      // Rasterize SVG to canvas
+      rasterizeSvgToCanvas(svgText, mmWidth, mmHeight, dpr);
+
+      // Update viewport indicator
+      updateMinimapViewport();
+    }
+
+    function rasterizeSvgToCanvas(svgText, width, height, dpr) {
+      const img = new Image();
+      const blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+
+      img.onload = () => {
+        const ctx = minimapCanvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+
+        // Cache the image data for potential re-use
+        minimapImageData = ctx.getImageData(0, 0, minimapCanvas.width, minimapCanvas.height);
+      };
+
+      img.onerror = () => {
+        console.error('Failed to rasterize SVG for minimap');
+        URL.revokeObjectURL(url);
+      };
+
+      img.src = url;
+    }
+
+    function updateMinimapViewport() {
+      if (!svgElement || !minimapVisible) return;
+
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+
+      // Padding in the main viewport
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Current scroll position relative to SVG (not padding)
+      const scrollX = viewport.scrollLeft - padX;
+      const scrollY = viewport.scrollTop - padY;
+
+      // Visible area in SVG coordinates
+      const visibleX = scrollX / scale;
+      const visibleY = scrollY / scale;
+      const visibleW = vpRect.width / scale;
+      const visibleH = vpRect.height / scale;
+
+      // Scale to minimap coordinates
+      const mmScaleX = mmRect.width / svgWidth;
+      const mmScaleY = mmRect.height / svgHeight;
+
+      // Position and size the viewport indicator (no clamping - allow overflow)
+      const left = visibleX * mmScaleX;
+      const top = visibleY * mmScaleY;
+      const width = visibleW * mmScaleX;
+      const height = visibleH * mmScaleY;
+
+      minimapViewport.style.left = left + 'px';
+      minimapViewport.style.top = top + 'px';
+      minimapViewport.style.width = Math.max(10, width) + 'px';
+      minimapViewport.style.height = Math.max(10, height) + 'px';
+    }
+
+    // Update minimap on scroll
+    viewport.addEventListener('scroll', updateMinimapViewport);
+
+    // Minimap click/drag to navigate
+    minimapContent.addEventListener('mousedown', (e) => {
+      isMinimapDragging = true;
+
+      // Calculate offset so dragging feels natural
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = minimapViewport.getBoundingClientRect();
+
+      // Check if clicking inside the viewport indicator
+      const inViewport = e.clientX >= vpRect.left && e.clientX <= vpRect.right &&
+        e.clientY >= vpRect.top && e.clientY <= vpRect.bottom;
+
+      if (inViewport) {
+        // Drag from current position
+        minimapDragOffsetX = e.clientX - vpRect.left;
+        minimapDragOffsetY = e.clientY - vpRect.top;
+      } else {
+        // Click outside - center viewport on click point, then allow drag
+        const vpW = vpRect.width;
+        const vpH = vpRect.height;
+        minimapDragOffsetX = vpW / 2;
+        minimapDragOffsetY = vpH / 2;
+        navigateMinimapTo(e, true);
+      }
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isMinimapDragging) return;
+      navigateMinimapTo(e, true);
+    });
+
+    document.addEventListener('mouseup', () => {
+      isMinimapDragging = false;
+    });
+
+    function navigateMinimapTo(e, useDragOffset = false) {
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Mouse position in minimap
+      let mmX = e.clientX - mmRect.left;
+      let mmY = e.clientY - mmRect.top;
+
+      if (useDragOffset) {
+        // Adjust for drag offset (top-left of viewport indicator)
+        mmX -= minimapDragOffsetX;
+        mmY -= minimapDragOffsetY;
+      } else {
+        // Click centers the viewport on that point
+        const vpW = (vpRect.width / scale) * (mmRect.width / svgWidth);
+        const vpH = (vpRect.height / scale) * (mmRect.height / svgHeight);
+        mmX -= vpW / 2;
+        mmY -= vpH / 2;
+      }
+
+      // Convert to SVG coordinates
+      const svgX = (mmX / mmRect.width) * svgWidth;
+      const svgY = (mmY / mmRect.height) * svgHeight;
+
+      // Scroll to position (accounting for padding)
+      viewport.scrollLeft = svgX * scale + padX;
+      viewport.scrollTop = svgY * scale + padY;
+    }
+
+    function zoomBy(factor, centerX, centerY) {
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor));
+      if (newScale === scale) return;
+
+      const rect = viewport.getBoundingClientRect();
+      const oldPadX = rect.width;
+      const oldPadY = rect.height;
+
+      // If center point provided, zoom towards it
+      if (centerX !== undefined && centerY !== undefined) {
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates (accounting for padding)
+        const svgX = (scrollX + centerX - rect.left - oldPadX) / scale;
+        const svgY = (scrollY + centerY - rect.top - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        // New padding after zoom (viewport size doesn't change)
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        // Scroll to keep the point under cursor
+        viewport.scrollLeft = svgX * scale + newPadX - (centerX - rect.left);
+        viewport.scrollTop = svgY * scale + newPadY - (centerY - rect.top);
+      } else {
+        // Zoom towards center of viewport
+        const viewCenterX = rect.width / 2;
+        const viewCenterY = rect.height / 2;
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates
+        const svgX = (scrollX + viewCenterX - oldPadX) / scale;
+        const svgY = (scrollY + viewCenterY - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        viewport.scrollLeft = svgX * scale + newPadX - viewCenterX;
+        viewport.scrollTop = svgY * scale + newPadY - viewCenterY;
+      }
+    }
+
+    function setZoom(newScale) {
+      scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+      updateZoom();
+    }
+
+    function centerSvg() {
+      const rect = viewport.getBoundingClientRect();
+      const padX = rect.width;
+      const padY = rect.height;
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      // Scroll so SVG is centered in viewport
+      viewport.scrollLeft = padX + (scaledW - rect.width) / 2;
+      viewport.scrollTop = padY + (scaledH - rect.height) / 2;
+    }
+
+    function updateZoom() {
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportW = viewportRect.width;
+      const viewportH = viewportRect.height;
+
+      // Padding allows the SVG to be scrolled so it can be centered (or anywhere)
+      const padX = viewportW;
+      const padY = viewportH;
+
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      svgContainer.style.transform = `scale(${scale})`;
+      svgContainer.style.width = scaledW + 'px';
+      svgContainer.style.height = scaledH + 'px';
+
+      // Wrapper includes padding on all sides
+      svgWrapper.style.paddingLeft = padX + 'px';
+      svgWrapper.style.paddingTop = padY + 'px';
+      svgWrapper.style.paddingRight = padX + 'px';
+      svgWrapper.style.paddingBottom = padY + 'px';
+
+      zoomLevelEl.textContent = Math.round(scale * 100) + '%';
+
+      // Update minimap viewport indicator
+      updateMinimapViewport();
+    }
+
+    // Mouse wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      zoomBy(factor, e.clientX, e.clientY);
+    }, {passive: false});
+
+    // === Panning ===
+
+    function isTextElement(el) {
+      while (el && el !== viewport) {
+        if (el.tagName === 'text' || el.tagName === 'tspan') return true;
+        el = el.parentElement;
+      }
+      return false;
+    }
+
+    viewport.addEventListener('mousedown', (e) => {
+      // Middle mouse always pans
+      if (e.button === 1) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+        return;
+      }
+
+      // Left click: pan if not on text, otherwise let browser handle selection
+      if (e.button === 0 && !isTextElement(e.target)) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+      }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isPanning) return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      viewport.scrollLeft = scrollStartX - dx;
+      viewport.scrollTop = scrollStartY - dy;
+    });
+
+    document.addEventListener('mouseup', () => {
+      isPanning = false;
+      viewport.classList.remove('panning');
+    });
+
+    // === Touch Support (pinch zoom only, panning is native scroll) ===
+
+    let touchStartDist = 0;
+    let touchStartScale = 1;
+    let lastTouchCenter = null;
+
+    viewport.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        touchStartDist = getTouchDistance(e.touches);
+        touchStartScale = scale;
+        lastTouchCenter = getTouchCenter(e.touches);
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDistance(e.touches);
+        const center = getTouchCenter(e.touches);
+        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, touchStartScale * (dist / touchStartDist)));
+
+        if (newScale !== scale) {
+          // Zoom towards pinch center
+          const rect = viewport.getBoundingClientRect();
+          const padX = rect.width;
+          const padY = rect.height;
+
+          const svgX = (viewport.scrollLeft + center.x - rect.left - padX) / scale;
+          const svgY = (viewport.scrollTop + center.y - rect.top - padY) / scale;
+
+          scale = newScale;
+          updateZoom();
+
+          viewport.scrollLeft = svgX * scale + padX - (center.x - rect.left);
+          viewport.scrollTop = svgY * scale + padY - (center.y - rect.top);
+        }
+
+        lastTouchCenter = center;
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) {
+        touchStartDist = 0;
+        lastTouchCenter = null;
+      }
+    });
+
+    function getTouchDistance(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getTouchCenter(touches) {
+      return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2
+      };
+    }
+
+    // === Search ===
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(performSearch, 150);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          navigateSearch(-1);
+        } else {
+          navigateSearch(1);
+        }
+      } else if (e.key === 'Escape') {
+        searchInput.blur();
+        clearSearch();
+      }
+    });
+
+    document.getElementById('search-prev').addEventListener('click', () => navigateSearch(-1));
+    document.getElementById('search-next').addEventListener('click', () => navigateSearch(1));
+
+    // CSS Custom Highlight API highlights
+    let searchResultsHighlight = null;
+    let searchCurrentHighlight = null;
+
+    // Initialize highlights if API is available
+    if (CSS.highlights) {
+      searchResultsHighlight = new Highlight();
+      searchCurrentHighlight = new Highlight();
+      CSS.highlights.set('search-results', searchResultsHighlight);
+      CSS.highlights.set('search-current', searchCurrentHighlight);
+    }
+
+    function performSearch() {
+      if (!svgElement) return;
+
+      const query = searchInput.value.trim();
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+
+      if (!query) {
+        updateSearchInfo();
+        searchInput.classList.remove('invalid');
+        return;
+      }
+
+      // Try to compile regex
+      let regex;
+      try {
+        regex = new RegExp(query, 'gi');
+        searchInput.classList.remove('invalid');
+      } catch (e) {
+        // Invalid regex
+        searchInput.classList.add('invalid');
+        updateSearchInfo();
+        return;
+      }
+
+      // Find all text elements containing matches
+      const textElements = svgElement.querySelectorAll('text');
+      textElements.forEach((textEl) => {
+        const content = textEl.textContent || '';
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        let match;
+        regex.lastIndex = 0; // Reset regex state
+        while ((match = regex.exec(content)) !== null) {
+          // Create range for this match
+          try {
+            const range = new Range();
+            range.setStart(textNode, match.index);
+            range.setEnd(textNode, match.index + match[0].length);
+
+            searchMatches.push({
+              element: textEl,
+              start: match.index,
+              length: match[0].length,
+              text: match[0],
+              range: range
+            });
+          } catch (e) {
+            // Range creation failed, skip this match
+          }
+
+          // Prevent infinite loop on zero-length matches
+          if (match[0].length === 0) regex.lastIndex++;
+        }
+      });
+
+      // Add all ranges to the highlight (if API available)
+      if (searchResultsHighlight) {
+        searchMatches.forEach(match => {
+          searchResultsHighlight.add(match.range);
+        });
+      } else {
+        // Fallback: use SVG rects
+        searchMatches.forEach((match, index) => {
+          const rect = createHighlightRect(match);
+          if (rect) {
+            rect.dataset.index = index;
+            highlightGroup.appendChild(rect);
+          }
+        });
+      }
+
+      updateSearchInfo();
+
+      // Navigate to first match (don't select - user is still typing)
+      if (searchMatches.length > 0) {
+        currentMatchIndex = 0;
+        highlightCurrentMatch();
+        scrollToCurrentMatch(false);
+      }
+    }
+
+    function createHighlightRect(match) {
+      try {
+        const textEl = match.element;
+        const fullBbox = textEl.getBBox();
+        const content = textEl.textContent || '';
+
+        // Calculate approximate character width
+        const charWidth = fullBbox.width / content.length;
+
+        // Calculate highlight bounds for the matched portion
+        const x = fullBbox.x + (match.start * charWidth);
+        const width = match.length * charWidth;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x - 1);
+        rect.setAttribute('y', fullBbox.y - 2);
+        rect.setAttribute('width', width + 2);
+        rect.setAttribute('height', fullBbox.height + 4);
+        rect.classList.add('search-highlight');
+
+        // Apply transforms from parent elements
+        let transform = '';
+        let el = textEl;
+        while (el && el !== svgElement) {
+          const t = el.getAttribute('transform');
+          if (t) transform = t + ' ' + transform;
+          el = el.parentElement;
+        }
+        if (transform) {
+          rect.setAttribute('transform', transform);
+        }
+
+        return rect;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function clearHighlights() {
+      // Clear CSS Custom Highlights
+      if (searchResultsHighlight) {
+        searchResultsHighlight.clear();
+      }
+      if (searchCurrentHighlight) {
+        searchCurrentHighlight.clear();
+      }
+      // Clear SVG rect fallback
+      if (highlightGroup) {
+        highlightGroup.innerHTML = '';
+      }
+    }
+
+    function clearSearch() {
+      searchInput.value = '';
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+      updateSearchInfo();
+    }
+
+    function navigateSearch(direction) {
+      if (searchMatches.length === 0) return;
+
+      currentMatchIndex += direction;
+      if (currentMatchIndex >= searchMatches.length) {
+        currentMatchIndex = 0;
+      } else if (currentMatchIndex < 0) {
+        currentMatchIndex = searchMatches.length - 1;
+      }
+
+      highlightCurrentMatch();
+      scrollToCurrentMatch(true); // Select text on explicit navigation
+    }
+
+    function highlightCurrentMatch() {
+      if (searchCurrentHighlight) {
+        // Update current highlight
+        searchCurrentHighlight.clear();
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchMatches.length) {
+          searchCurrentHighlight.add(searchMatches[currentMatchIndex].range);
+        }
+      } else {
+        // Fallback: toggle class on SVG rects
+        const rects = highlightGroup.querySelectorAll('rect');
+        rects.forEach((rect, i) => {
+          rect.classList.toggle('current', i === currentMatchIndex);
+        });
+      }
+      updateSearchInfo();
+    }
+
+    function scrollToCurrentMatch(shouldSelect = false) {
+      if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
+
+      const match = searchMatches[currentMatchIndex];
+      const textEl = match.element;
+      try {
+        const bbox = textEl.getBBox();
+
+        // Get cumulative transform
+        let el = textEl;
+        let matrix = svgElement.createSVGMatrix();
+        const transforms = [];
+        while (el && el !== svgElement) {
+          const t = el.transform?.baseVal?.consolidate()?.matrix;
+          if (t) transforms.unshift(t);
+          el = el.parentElement;
+        }
+        transforms.forEach(t => {
+          matrix = matrix.multiply(t);
+        });
+
+        // Transform the center point
+        const centerX = bbox.x + bbox.width / 2;
+        const centerY = bbox.y + bbox.height / 2;
+        const point = svgElement.createSVGPoint();
+        point.x = centerX;
+        point.y = centerY;
+        const transformed = point.matrixTransform(matrix);
+
+        // Convert to screen coordinates and scroll (accounting for padding)
+        const viewportRect = viewport.getBoundingClientRect();
+        const padX = viewportRect.width;
+        const padY = viewportRect.height;
+
+        const screenX = transformed.x * scale + padX;
+        const screenY = transformed.y * scale + padY;
+
+        const targetScrollX = screenX - viewportRect.width / 2;
+        const targetScrollY = screenY - viewportRect.height / 2;
+
+        viewport.scrollTo({
+          left: targetScrollX,
+          top: targetScrollY,
+          behavior: 'smooth'
+        });
+
+        // Only select text on explicit navigation (Enter/buttons), not while typing
+        if (shouldSelect) {
+          selectMatchedText(match);
+        }
+      } catch (e) {
+        // Fallback: try to scroll the element into view
+        textEl.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});
+      }
+    }
+
+    function selectMatchedText(match) {
+      try {
+        const textEl = match.element;
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.setStart(textNode, match.start);
+        range.setEnd(textNode, match.start + match.length);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (e) {
+        // Selection not supported or failed
+      }
+    }
+
+    function updateSearchInfo() {
+      if (searchMatches.length === 0) {
+        searchInfo.textContent = searchInput.value ? 'No matches' : '0 / 0';
+      } else {
+        searchInfo.textContent = `${currentMatchIndex + 1} / ${searchMatches.length}`;
+      }
+    }
+
+    // === Keyboard Shortcuts ===
+
+    document.addEventListener('keydown', (e) => {
+      // Don't handle shortcuts if typing in search
+      if (document.activeElement === searchInput) return;
+
+      // Zoom shortcuts
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomBy(1.25);
+      } else if (e.key === '-') {
+        e.preventDefault();
+        zoomBy(0.8);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setZoom(1);
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        toggleDarkMode();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        toggleMinimap();
+      }
+    });
+
+    // === Embedded SVG Support ===
+
+    function initializeEmbeddedSvg() {
+      // Check if an SVG is already present in the container (embedded at build time)
+      svgElement = svgContainer.querySelector('svg');
+      if (!svgElement) return false;
+
+      // Hide file selection UI since this is a self-contained viewer
+      const fileGroup = document.querySelector('#toolbar .group:first-child');
+      if (fileGroup) fileGroup.style.display = 'none';
+      emptyState.style.display = 'none';
+
+      // Show viewport
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap - serialize SVG for rasterization
+      const svgText = new XMLSerializer().serializeToString(svgElement);
+      initMinimap(svgText);
+
+      return true;
+    }
+
+    // Check for embedded SVG on startup
+    const hasEmbeddedSvg = initializeEmbeddedSvg();
+
+    // === URL Hash Loading ===
+
+    async function loadFromHash() {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return;
+
+      const params = new URLSearchParams(hash);
+
+      // Check for url= parameter
+      const url = params.get('url');
+      if (url) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            // Extract filename from URL for title
+            const filename = url.split('/').pop() || 'remote';
+            document.title = `SVG Viewer - ${filename}`;
+          } else {
+            console.error('Failed to load SVG from URL:', response.status);
+          }
+        } catch (err) {
+          console.error('Failed to load SVG from URL:', err);
+        }
+        return;
+      }
+
+      // Check for example= parameter
+      const example = params.get('example');
+      if (example && exampleFiles.includes(example)) {
+        try {
+          const response = await fetch(`examples/${example}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${example}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+      }
+    }
+
+    // Only load from hash if no embedded SVG
+    if (!hasEmbeddedSvg) {
+      loadFromHash();
+      window.addEventListener('hashchange', loadFromHash);
+    }
+
+  </script>
+</body>
+
+</html>

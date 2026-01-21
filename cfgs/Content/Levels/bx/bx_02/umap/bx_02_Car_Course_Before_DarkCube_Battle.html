@@ -1,163 +1,1836 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <style>
-      window, html, body {
-        border: 0;
-        margin: 0;
-        padding: 0;
-      }
-      body {
-        overflow: scroll;
-      }
-      #minimap-container {
-        position: fixed;
-        top: 5vmin;
-        right: 5vmin;
+<html lang="en">
 
-        outline: 2px solid black;
-      }
-      #minimap {
-        max-width: 30vmin;
-        max-height: 30vmin;
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVG Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-        display: block;
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
 
-        pointer-events: none;
-      }
-      #minimap-view {
-        position: absolute;
-        box-sizing: border-box;
-        left: 0%;
-        top: 50%;
+    #toolbar {
+      background: #2d2d2d;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #444;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
 
-        pointer-events: none;
+    #toolbar .group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
 
-        outline: 2px solid black;
+    #toolbar label {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #toolbar button {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    #toolbar button:hover {
+      background: #555;
+    }
+
+    #toolbar button:active {
+      background: #666;
+    }
+
+    #file-input {
+      font-size: 13px;
+    }
+
+    .examples-select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .examples-select:hover {
+      background: #555;
+    }
+
+    #zoom-level {
+      min-width: 50px;
+      text-align: center;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #search-input {
+      background: #333;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      width: 200px;
+    }
+
+    #search-input:focus {
+      outline: none;
+      border-color: #0078d4;
+    }
+
+    #search-input.invalid {
+      border-color: #d32f2f;
+      background: #3d2020;
+    }
+
+    #search-info {
+      font-size: 13px;
+      color: #aaa;
+      min-width: 60px;
+    }
+
+    #viewport {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      touch-action: pan-x pan-y;
+      cursor: grab;
+    }
+
+    #viewport.panning {
+      cursor: grabbing;
+    }
+
+    #svg-container text {
+      cursor: text;
+    }
+
+    #svg-wrapper {
+      display: inline-block;
+      /* Padding allows SVG to be scrolled/centered even when zoomed out */
+    }
+
+    #svg-container {
+      transform-origin: 0 0;
+      display: inline-block;
+    }
+
+    #svg-container svg {
+      display: block;
+    }
+
+    /* Dark mode for SVG - invert with reduced contrast */
+    #svg-container.dark-mode svg {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    /* Toggle button active state */
+    #toolbar button.active {
+      background: #0078d4;
+      border-color: #0078d4;
+    }
+
+    #toolbar button.active:hover {
+      background: #1084d8;
+    }
+
+    /* Search highlight styling - SVG rect fallback */
+    .search-highlight {
+      fill: #22ee22;
+      stroke: #00aa00;
+      stroke-width: 1;
+      pointer-events: none;
+    }
+
+    .search-highlight.current {
+      fill: #ff22ff;
+      stroke: #cc00cc;
+      stroke-width: 2;
+    }
+
+    /* CSS Custom Highlight API styling */
+    ::highlight(search-results) {
+      background-color: #22ee22;
+      color: black;
+    }
+
+    ::highlight(search-current) {
+      background-color: #ff22ff;
+      color: black;
+    }
+
+    #hint {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    #hint kbd {
+      background: #444;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: inherit;
+      margin: 0 2px;
+    }
+
+    /* Hide hint on mobile/touch devices */
+    @media (hover: none),
+    (max-width: 768px) {
+      #hint {
+        display: none;
       }
-      #map {
-        transform-origin: top left;
-      }
-      #container {
-        overflow: hidden;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="container"></div>
-    <div id="minimap-container">
-      <img id="minimap"></img>
-      <div id="minimap-view"></div>
+    }
+
+    /* Minimap */
+    #minimap {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      width: 400px;
+      max-height: 600px;
+      background: #2d2d2d;
+      border: 1px solid #444;
+      border-radius: 6px;
+      overflow: hidden;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    #minimap.visible {
+      display: block;
+    }
+
+    #minimap-content {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #minimap-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #minimap-viewport {
+      position: absolute;
+      border: 2px solid #0078d4;
+      background: rgba(0, 120, 212, 0.15);
+      cursor: move;
+      pointer-events: auto;
+    }
+
+    #minimap-content.dark-mode #minimap-canvas {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    #drop-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 120, 212, 0.2);
+      border: 3px dashed #0078d4;
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #0078d4;
+    }
+
+    #drop-overlay.active {
+      display: flex;
+    }
+
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      gap: 16px;
+    }
+
+    #empty-state.hidden {
+      display: none;
+    }
+
+    #empty-state .empty-title {
+      font-size: 32px;
+      font-weight: 600;
+      color: #ccc;
+    }
+
+    #empty-state .empty-subtitle {
+      font-size: 18px;
+      color: #666;
+    }
+
+    #empty-state .empty-divider {
+      font-size: 14px;
+      color: #555;
+      margin: 8px 0;
+    }
+
+    #empty-state .empty-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    #empty-state button,
+    #empty-state select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #empty-state button:hover,
+    #empty-state select:hover {
+      background: #555;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="toolbar">
+    <div class="group">
+      <input type="file" id="file-input" accept=".svg">
+      <select class="examples-select" title="Load example SVG">
+        <option value="">Examples...</option>
+      </select>
     </div>
-    <script type="text/javascript">
-      const container = document.getElementById('container');
-      const minimap = document.getElementById('minimap');
-      const minimapView = document.getElementById('minimap-view');
-      const minimapContainer = document.getElementById('minimap-container');
+    <div class="group">
+      <button id="zoom-out" title="Zoom out (-)">-</button>
+      <span id="zoom-level">100%</span>
+      <button id="zoom-in" title="Zoom in (+)">+</button>
+      <button id="zoom-reset" title="Reset zoom (0)">Reset</button>
+    </div>
+    <div class="group">
+      <button id="dark-mode-toggle" title="Toggle dark mode for SVG (D)">Dark Mode</button>
+      <button id="minimap-toggle" title="Toggle minimap (M)">Minimap</button>
+    </div>
+    <div class="group">
+      <input type="search" id="search-input" placeholder="Regex search...">
+      <button id="search-prev" title="Previous match (Shift+Enter)">Prev</button>
+      <span id="search-info">0 / 0</span>
+      <button id="search-next" title="Next match (Enter)">Next</button>
+    </div>
+  </div>
 
-      const data = new TextDecoder().decode(Uint8Array.from(atob("PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+DQo8IURPQ1RZUEUgc3ZnIFBVQkxJQyAiLS8vVzNDLy9EVEQgU1ZHIDEuMS8vRU4iDQogImh0dHA6Ly93d3cudzMub3JnL0dyYXBoaWNzL1NWRy8xLjEvRFREL3N2ZzExLmR0ZCI+DQo8IS0tIEdlbmVyYXRlZCBieSBncmFwaHZpeiB2ZXJzaW9uIDEyLjAuMCAoMjAyNDA3MDQuMDc1NCkNCiAtLT4NCjwhLS0gUGFnZXM6IDEgLS0+DQo8c3ZnIHdpZHRoPSI2NTEzcHQiIGhlaWdodD0iMTUyNHB0Ig0KIHZpZXdCb3g9IjAuMDAgMC4wMCA2NTEzLjAwIDE1MjMuNTAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiPg0KPGcgaWQ9ImdyYXBoMCIgY2xhc3M9ImdyYXBoIiB0cmFuc2Zvcm09InNjYWxlKDEgMSkgcm90YXRlKDApIHRyYW5zbGF0ZSg0IDE1MTkuNSkiPg0KPHBvbHlnb24gZmlsbD0id2hpdGUiIHN0cm9rZT0ibm9uZSIgcG9pbnRzPSItNCw0IC00LC0xNTE5LjUgNjUwOSwtMTUxOS41IDY1MDksNCAtNCw0Ii8+DQo8IS0tIGJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DIC0tPg0KPGcgaWQ9Im5vZGUxIiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+YnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iIzg4ZmY4OCIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI2Ny42MiwtMTQ1Ny41IDY3LjYyLC0xNTE1IDU3OC42MiwtMTUxNSA1NzguNjIsLTE0NTcuNSA2Ny42MiwtMTQ1Ny41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9Ijc1LjYyIiB5PSItMTQ5Ny43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5DbGFzc0V4cG9ydDogYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9Ijc1LjYyIiB5PSItMTQ4MS4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBTdXBlclN0cnVjdDogaW1wb3J0IC9TY3JpcHQvVHJlc0dhbWUmIzQ1OyZndDtUcmVzTGV2ZWxTY3JpcHRBY3RvcjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iNzUuNjIiIHk9Ii0xNDY0LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkFByb3BlcnRpZXM6PC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZSAtLT4NCjxnIGlkPSJub2RlMiIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNmZjg4ODgiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNTk3LC0xNDY4LjI1IDU5NywtMTUwNC4yNSAxMTQ5LjI1LC0xNTA0LjI1IDExNDkuMjUsLTE0NjguMjUgNTk3LC0xNDY4LjI1Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjYwNSIgeT0iLTE0ODEuNDUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkZ1bmN0aW9uIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlPC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMCAtLT4NCjxnIGlkPSJub2RlMyIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18wPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNDQ4LjUsLTEzMTMuMjUgNDQ4LjUsLTEzNjIuMjUgMTI5Ny43NSwtMTM2Mi4yNSAxMjk3Ljc1LC0xMzEzLjI1IDQ0OC41LC0xMzEzLjI1Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSI4NzMuMTIiIHk9Ii0xMzQ0Ljk1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfQzo6RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGU6MDwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQ0OC41LC0xMzM3Ljc1IDEyOTcuNzUsLTEzMzcuNzUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iNDU2LjUiIHk9Ii0xMzIwLjQ1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9QdXNoRXhlY3V0aW9uRmxvdyAyMTA8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzAgLS0+DQo8ZyBpZD0iZWRnZTEiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZSYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18wPC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik04NzMuMTIsLTE0NjcuODdDODczLjEyLC0xNDQ0Ljc4IDg3My4xMiwtMTQwMy40NyA4NzMuMTIsLTEzNzMuNzkiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9Ijg3Ni42MywtMTM3NC4xNyA4NzMuMTMsLTEzNjQuMTcgODY5LjYzLC0xMzc0LjE3IDg3Ni42MywtMTM3NC4xNyIvPg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fNSAtLT4NCjxnIGlkPSJub2RlNCIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX181PC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMCwtMTExOS41IDAsLTExODUgMTE0Ni4yNSwtMTE4NSAxMTQ2LjI1LC0xMTE5LjUgMCwtMTExOS41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSI1NzMuMTIiIHk9Ii0xMTY3LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPmJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DOjpFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZTo1PC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMCwtMTE2MC41IDExNDYuMjUsLTExNjAuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSI4IiB5PSItMTE0My4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9Db21wdXRlZEp1bXA8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjgiIHk9Ii0xMTI2LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0xvY2FsVmFyaWFibGUgZXhwb3J0IGJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGUmIzQ1OyZndDtFbnRyeVBvaW50PC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMCYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX181IC0tPg0KPGcgaWQ9ImVkZ2UzIiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzAmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fNTwvdGl0bGU+DQo8cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBkPSJNODMzLjkxLC0xMzEyLjc2Qzc4My40MywtMTI4MS44OSA2OTUuMTQsLTEyMjcuODggNjM1LjQzLC0xMTkxLjM2Ii8+DQo8cG9seWdvbiBmaWxsPSJibGFjayIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI2MzcuMzgsLTExODguNDUgNjI3LjAyLC0xMTg2LjIyIDYzMy43MywtMTE5NC40MiA2MzcuMzgsLTExODguNDUiLz4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzIxMCAtLT4NCjxnIGlkPSJub2RlMTYiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMjEwPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMTE2NC4yNSwtMTExOS41IDExNjQuMjUsLTExODUgMjAzMCwtMTE4NSAyMDMwLC0xMTE5LjUgMTE2NC4yNSwtMTExOS41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSIxNTk3LjEyIiB5PSItMTE2Ny43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfQzo6RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGU6MjEwPC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMTE2NC4yNSwtMTE2MC41IDIwMzAsLTExNjAuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIxMTcyLjI1IiB5PSItMTE0My4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9SZXR1cm48L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjExNzIuMjUiIHk9Ii0xMTI2LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX05vdGhpbmc8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18wJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzIxMCAtLT4NCjxnIGlkPSJlZGdlMiIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18wOmUmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMjEwPC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0icmVkIiBkPSJNMTI5OC43NSwtMTMzNy43NUMxNDA3LjY2LC0xMzM3Ljc1IDE1MTAsLTEyNDcuNzMgMTU2MS44MSwtMTE5My40NSIvPg0KPHBvbHlnb24gZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZWQiIHBvaW50cz0iMTU2NC4wNSwtMTE5Ni4xNyAxNTY4LjM1LC0xMTg2LjQ5IDE1NTguOTUsLTExOTEuMzggMTU2NC4wNSwtMTE5Ni4xNyIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMTU1My4zOCIgeT0iLTEyNTYuNDUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPlBVU0ggU1RBQ0s8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNSAtLT4NCjxnIGlkPSJub2RlNSIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNTwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjM1MzcuMzgsLTQ4MC41IDM1MzcuMzgsLTY5NC41IDQzOTQuODgsLTY5NC41IDQzOTQuODgsLTQ4MC41IDM1MzcuMzgsLTQ4MC41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSIzOTY2LjEyIiB5PSItNjc3LjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPmJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DOjpFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZToxNTwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjM1MzcuMzgsLTY3MCA0Mzk0Ljg4LC02NzAiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMzU0NS4zOCIgeT0iLTY1Mi43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9Db250ZXh0PC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIzNTQ1LjM4IiB5PSItNjM2LjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX09iamVjdENvbnN0IGltcG9ydCAvU2NyaXB0L0VuZ2luZSYjNDU7Jmd0O0RlZmF1bHRfX0tpc21ldFN5c3RlbUxpYnJhcnk8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjM1NDUuMzgiIHk9Ii02MTkuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfRmluYWxGdW5jdGlvbiBpbXBvcnQgL1NjcmlwdC9FbmdpbmUmIzQ1OyZndDtLaXNtZXRTeXN0ZW1MaWJyYXJ5JiM0NTsmZ3Q7UmV0cmlnZ2VyYWJsZURlbGF5PC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIzNTQ1LjM4IiB5PSItNjAzLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkOKUnOKUkOKUnOKUkEVYX1NlbGY8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjM1NDUuMzgiIHk9Ii01ODYuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQRVhfRmxvYXRDb25zdCAxNTwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMzU0NS4zOCIgeT0iLTU3MC4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJDilJzilJDilJzilJBFWF9TdHJ1Y3RDb25zdCBpbXBvcnQgL1NjcmlwdC9FbmdpbmUmIzQ1OyZndDtMYXRlbnRBY3Rpb25JbmZvPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIzNTQ1LjM4IiB5PSItNTUzLjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkOKUnOKUkOKUnOKUkOKUnOKUkOKUnOKUkEVYX1NraXBPZmZzZXRDb25zdCA5MjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMzU0NS4zOCIgeT0iLTUzNy4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJDilJzilJDilJzilJDilJzilJDilJzilJBFWF9JbnRDb25zdCAmIzQ1OzIwNDg4NzY4NDI8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjM1NDUuMzgiIHk9Ii01MjAuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQRVhfTmFtZUNvbnN0IEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIzNTQ1LjM4IiB5PSItNTA0LjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkOKUnOKUkOKUnOKUkOKUnOKUkOKUnOKUkEVYX1NlbGY8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjM1NDUuMzgiIHk9Ii00ODcuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQUlZhbHVlID0gbnVsbDwvdGV4dD4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzkxIC0tPg0KPGcgaWQ9Im5vZGU2IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzkxPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMzUzNy4zOCwtMzg1LjI1IDM1MzcuMzgsLTQzNC4yNSA0Mzk0Ljg4LC00MzQuMjUgNDM5NC44OCwtMzg1LjI1IDM1MzcuMzgsLTM4NS4yNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMzk2Ni4xMiIgeT0iLTQxNi45NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+YnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M6OkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlOjkxPC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMzUzNy4zOCwtNDA5Ljc1IDQzOTQuODgsLTQwOS43NSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIzNTQ1LjM4IiB5PSItMzkyLjQ1IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9Qb3BFeGVjdXRpb25GbG93PC90ZXh0Pg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTUmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fOTEgLS0+DQo8ZyBpZD0iZWRnZTUiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTUmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fOTE8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTM5NjYuMTIsLTQ4MC4yMUMzOTY2LjEyLC00NjcuOTUgMzk2Ni4xMiwtNDU2LjE5IDM5NjYuMTIsLTQ0NS45NCIvPg0KPHBvbHlnb24gZmlsbD0iYmxhY2siIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMzk2OS42MywtNDQ2LjE4IDM5NjYuMTMsLTQzNi4xOCAzOTYyLjYzLC00NDYuMTggMzk2OS42MywtNDQ2LjE4Ii8+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX185MiAtLT4NCjxnIGlkPSJub2RlNyIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX185MjwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQ0MjEuMzgsLTM3NyA0NDIxLjM4LC00NDIuNSA1Mjc4Ljg4LC00NDIuNSA1Mjc4Ljg4LC0zNzcgNDQyMS4zOCwtMzc3Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSI0ODUwLjEyIiB5PSItNDI1LjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPmJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DOjpFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZTo5MjwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQ0MjEuMzgsLTQxOCA1Mjc4Ljg4LC00MTgiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iNDQyOS4zOCIgeT0iLTQwMC43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9Qb3BFeGVjdXRpb25GbG93SWZOb3Q8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjQ0MjkuMzgiIHk9Ii0zODQuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfSW5zdGFuY2VWYXJpYWJsZSBleHBvcnQgYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0MmIzQ1OyZndDtNYW51YWxDb2xvcjwvdGV4dD4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzE1JiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzkyIC0tPg0KPGcgaWQ9ImVkZ2U0IiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzE1OmUmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fOTI8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZWQiIGQ9Ik00Mzk1Ljg4LC01ODcuNUM0NTQ3LjQ4LC01ODcuNSA0NzA5LjM2LC01MDAuOTMgNDc5Mi44OSwtNDQ4Ljk3Ii8+DQo8cG9seWdvbiBmaWxsPSJub25lIiBzdHJva2U9InJlZCIgcG9pbnRzPSI0Nzk0LjU1LC00NTIuMDUgNDgwMS4xNiwtNDQzLjc3IDQ3OTAuODMsLTQ0Ni4xMyA0Nzk0LjU1LC00NTIuMDUiLz4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzEwMiAtLT4NCjxnIGlkPSJub2RlOCIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xMDI8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI0MTc4LC0yMDcuNSA0MTc4LC0zMzkgNTUyMi4yNSwtMzM5IDU1MjIuMjUsLTIwNy41IDQxNzgsLTIwNy41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSI0ODUwLjEyIiB5PSItMzIxLjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPmJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DOjpFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZToxMDI8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI0MTc4LC0zMTQuNSA1NTIyLjI1LC0zMTQuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSI0MTg2IiB5PSItMjk3LjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX0NvbnRleHQ8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjQxODYiIHk9Ii0yODAuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfSW5zdGFuY2VWYXJpYWJsZSBleHBvcnQgYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0MmIzQ1OyZndDtTTV9ieF9Qcm9fVHJhTGlnaHRDN19FeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9SZWZQcm9wZXJ0eTwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iNDE4NiIgeT0iLTI2NC4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9GaW5hbEZ1bmN0aW9uIGltcG9ydCAvU2NyaXB0L1RyZXNHYW1lJiM0NTsmZ3Q7VHJlc0dpbW1pY2tCeFNpbmdvdWtpJiM0NTsmZ3Q7U2V0TWFudWFsQ29sb3I8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjQxODYiIHk9Ii0yNDcuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQRVhfRmFsc2U8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjQxODYiIHk9Ii0yMzEuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQRVhfQnl0ZUNvbnN0IDA8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjQxODYiIHk9Ii0yMTQuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQUlZhbHVlID0gbnVsbDwvdGV4dD4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzkyJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzEwMiAtLT4NCjxnIGlkPSJlZGdlNiIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX185MiYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xMDI8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTQ4NTAuMTIsLTM3Ni41M0M0ODUwLjEyLC0zNjguNjcgNDg1MC4xMiwtMzU5LjkxIDQ4NTAuMTIsLTM1MC45MiIvPg0KPHBvbHlnb24gZmlsbD0iYmxhY2siIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNDg1My42MywtMzUwLjk4IDQ4NTAuMTMsLTM0MC45OCA0ODQ2LjYzLC0zNTAuOTggNDg1My42MywtMzUwLjk4Ii8+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xMzcgLS0+DQo8ZyBpZD0ibm9kZTkiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTM3PC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNDQxNy4yNSwtODcuNSA0NDE3LjI1LC0xNjkuNSA1MjgzLC0xNjkuNSA1MjgzLC04Ny41IDQ0MTcuMjUsLTg3LjUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjQ4NTAuMTIiIHk9Ii0xNTIuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+YnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M6OkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlOjEzNzwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQ0MTcuMjUsLTE0NSA1MjgzLC0xNDUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iNDQyNS4yNSIgeT0iLTEyNy43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9MZXRCb29sPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSI0NDI1LjI1IiB5PSItMTExLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0luc3RhbmNlVmFyaWFibGUgZXhwb3J0IGJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DJiM0NTsmZ3Q7TWFudWFsQ29sb3I8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjQ0MjUuMjUiIHk9Ii05NC43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9GYWxzZTwvdGV4dD4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzEwMiYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xMzcgLS0+DQo8ZyBpZD0iZWRnZTciIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTAyJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzEzNzwvdGl0bGU+DQo8cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBkPSJNNDg1MC4xMiwtMjA3LjE0QzQ4NTAuMTIsLTE5OC4zNCA0ODUwLjEyLC0xODkuNDIgNDg1MC4xMiwtMTgwLjkxIi8+DQo8cG9seWdvbiBmaWxsPSJibGFjayIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI0ODUzLjYzLC0xODEuMTIgNDg1MC4xMywtMTcxLjEyIDQ4NDYuNjMsLTE4MS4xMiA0ODUzLjYzLC0xODEuMTIiLz4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzE0OCAtLT4NCjxnIGlkPSJub2RlMTAiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTQ4PC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNDQxNy4yNSwtMC41IDQ0MTcuMjUsLTQ5LjUgNTI4MywtNDkuNSA1MjgzLC0wLjUgNDQxNy4yNSwtMC41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSI0ODUwLjEyIiB5PSItMzIuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+YnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M6OkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlOjE0ODwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQ0MTcuMjUsLTI1IDUyODMsLTI1Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjQ0MjUuMjUiIHk9Ii03LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX1BvcEV4ZWN1dGlvbkZsb3c8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xMzcmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTQ4IC0tPg0KPGcgaWQ9ImVkZ2U4IiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzEzNyYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNDg8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTQ4NTAuMTIsLTg3LjA5QzQ4NTAuMTIsLTc4LjUzIDQ4NTAuMTIsLTY5LjU1IDQ4NTAuMTIsLTYxLjE5Ii8+DQo8cG9seWdvbiBmaWxsPSJibGFjayIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI0ODUzLjYzLC02MS40MiA0ODUwLjEzLC01MS40MiA0ODQ2LjYzLC02MS40MiA0ODUzLjYzLC02MS40MiIvPg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTQ5IC0tPg0KPGcgaWQ9Im5vZGUxMSIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNDk8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI0NDE3LjI1LC0xMDE4LjUgNDQxNy4yNSwtMTA2Ny41IDUyODMsLTEwNjcuNSA1MjgzLC0xMDE4LjUgNDQxNy4yNSwtMTAxOC41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSI0ODUwLjEyIiB5PSItMTA1MC4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfQzo6RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGU6MTQ5PC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNDQxNy4yNSwtMTA0MyA1MjgzLC0xMDQzIi8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjQ0MjUuMjUiIHk9Ii0xMDI1LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX0p1bXAgOTI8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNDkmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fOTIgLS0+DQo8ZyBpZD0iZWRnZTkiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTQ5JiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzkyPC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik00ODUwLjEyLC0xMDE4LjIyQzQ4NTAuMTIsLTk4NS44MyA0ODUwLjEyLC05MjYuMDMgNDg1MC4xMiwtODc1IDQ4NTAuMTIsLTg3NSA0ODUwLjEyLC04NzUgNDg1MC4xMiwtNTg2LjUgNDg1MC4xMiwtNTQxLjQxIDQ4NTAuMTIsLTQ4OS44IDQ4NTAuMTIsLTQ1NC4yMyIvPg0KPHBvbHlnb24gZmlsbD0iYmxhY2siIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNDg1My42MywtNDU0LjMzIDQ4NTAuMTMsLTQ0NC4zMyA0ODQ2LjYzLC00NTQuMzMgNDg1My42MywtNDU0LjMzIi8+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNTQgLS0+DQo8ZyBpZD0ibm9kZTEyIiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzE1NDwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjUwMjguMjUsLTcxMy41IDUwMjguMjUsLTc2Mi41IDU4OTQsLTc2Mi41IDU4OTQsLTcxMy41IDUwMjguMjUsLTcxMy41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSI1NDYxLjEyIiB5PSItNzQ1LjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPmJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DOjpFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZToxNTQ8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI1MDI4LjI1LC03MzggNTg5NCwtNzM4Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjUwMzYuMjUiIHk9Ii03MjAuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfSnVtcCA5MjwvdGV4dD4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzE1NCYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX185MiAtLT4NCjxnIGlkPSJlZGdlMTAiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTU0JiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzkyPC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik01NDE2LjIsLTcxMy4wMUM1MzEwLjc0LC02NTYuNyA1MDQ2Ljc1LC01MTUuNzQgNDkyMC4wOCwtNDQ4LjEiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQ5MjEuOSwtNDQ1LjExIDQ5MTEuNDMsLTQ0My40OCA0OTE4LjYsLTQ1MS4yOCA0OTIxLjksLTQ0NS4xMSIvPg0KPC9nPg0KPCEtLSBFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTU5IC0tPg0KPGcgaWQ9Im5vZGUxMyIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNTk8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNzg0LC0xMDg2LjUgMjc4NCwtMTIxOCA0MTI4LjI1LC0xMjE4IDQxMjguMjUsLTEwODYuNSAyNzg0LC0xMDg2LjUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjM0NTYuMTIiIHk9Ii0xMjAwLjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPmJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DOjpFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZToxNTk8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNzg0LC0xMTkzLjUgNDEyOC4yNSwtMTE5My41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI3OTIiIHk9Ii0xMTc2LjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX0NvbnRleHQ8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI3OTIiIHk9Ii0xMTU5LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0luc3RhbmNlVmFyaWFibGUgZXhwb3J0IGJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DJiM0NTsmZ3Q7U01fYnhfUHJvX1RyYUxpZ2h0QzdfRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfUmVmUHJvcGVydHk8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI3OTIiIHk9Ii0xMTQzLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0ZpbmFsRnVuY3Rpb24gaW1wb3J0IC9TY3JpcHQvVHJlc0dhbWUmIzQ1OyZndDtUcmVzR2ltbWlja0J4U2luZ291a2kmIzQ1OyZndDtTZXRNYW51YWxDb2xvcjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjc5MiIgeT0iLTExMjYuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQRVhfVHJ1ZTwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjc5MiIgeT0iLTExMTAuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQ4pSc4pSQ4pSc4pSQRVhfQnl0ZUNvbnN0IDI8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjI3OTIiIHk9Ii0xMDkzLjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkFJWYWx1ZSA9IG51bGw8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xOTQgLS0+DQo8ZyBpZD0ibm9kZTE0IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzE5NDwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjMyOTEuMjUsLTkxNy41IDMyOTEuMjUsLTk5OS41IDQxNTcsLTk5OS41IDQxNTcsLTkxNy41IDMyOTEuMjUsLTkxNy41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSIzNzI0LjEyIiB5PSItOTgyLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPmJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DOjpFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZToxOTQ8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIzMjkxLjI1LC05NzUgNDE1NywtOTc1Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjMyOTkuMjUiIHk9Ii05NTcuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfTGV0Qm9vbDwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMzI5OS4yNSIgeT0iLTk0MS4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9JbnN0YW5jZVZhcmlhYmxlIGV4cG9ydCBieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfQyYjNDU7Jmd0O01hbnVhbENvbG9yPC90ZXh0Pg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIzMjk5LjI1IiB5PSItOTI0LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX1RydWU8L3RleHQ+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNTkmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTk0IC0tPg0KPGcgaWQ9ImVkZ2UxMSIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNTkmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTk0PC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0zNTQ3LjIzLC0xMDg2LjA2QzM1ODMuNzEsLTEwNTkuOTYgMzYyNC45MywtMTAzMC40NyAzNjU4LjQsLTEwMDYuNTMiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjM2NjAuMywtMTAwOS40NyAzNjY2LjM5LC0xMDAwLjgxIDM2NTYuMjIsLTEwMDMuNzggMzY2MC4zLC0xMDA5LjQ3Ii8+DQo8L2c+DQo8IS0tIEV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18yMDUgLS0+DQo8ZyBpZD0ibm9kZTE1IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzIwNTwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjM0ODUuMjUsLTc4MS41IDM0ODUuMjUsLTgzMC41IDQzNTEsLTgzMC41IDQzNTEsLTc4MS41IDM0ODUuMjUsLTc4MS41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSIzOTE4LjEyIiB5PSItODEzLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPmJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DOjpFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZToyMDU8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIzNDg1LjI1LC04MDYgNDM1MSwtODA2Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjM0OTMuMjUiIHk9Ii03ODguNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfSnVtcCAxNTwvdGV4dD4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzE5NCYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18yMDUgLS0+DQo8ZyBpZD0iZWRnZTEyIiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzE5NCYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18yMDU8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTM3NzYuMTEsLTkxNy4xN0MzODA4LjI2LC04OTIuMjMgMzg0OC44NywtODYwLjczIDM4NzguNDIsLTgzNy44Ii8+DQo8cG9seWdvbiBmaWxsPSJibGFjayIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIzODgwLjI3LC04NDAuOCAzODg2LjAyLC04MzEuOSAzODc1Ljk4LC04MzUuMjcgMzg4MC4yNywtODQwLjgiLz4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzIwNSYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNSAtLT4NCjxnIGlkPSJlZGdlMTMiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMjA1JiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzE1PC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0zOTIzLjQ1LC03ODFDMzkyNy42MiwtNzYyLjE2IDM5MzMuNzgsLTczNC40MSAzOTQwLjEyLC03MDUuODEiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjM5NDMuNDgsLTcwNi44MiAzOTQyLjIzLC02OTYuMyAzOTM2LjY0LC03MDUuMyAzOTQzLjQ4LC03MDYuODIiLz4NCjwvZz4NCjwhLS0gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzIxMiAtLT4NCjxnIGlkPSJub2RlMTciIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5FeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMjEyPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNTYzOS4yNSwtMTAxOC41IDU2MzkuMjUsLTEwNjcuNSA2NTA1LC0xMDY3LjUgNjUwNSwtMTAxOC41IDU2MzkuMjUsLTEwMTguNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iNjA3Mi4xMiIgeT0iLTEwNTAuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+YnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M6OkV4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlOjIxMjwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjU2MzkuMjUsLTEwNDMgNjUwNSwtMTA0MyIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSI1NjQ3LjI1IiB5PSItMTAyNS43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9FbmRPZlNjcmlwdDwvdGV4dD4NCjwvZz4NCjwhLS0gYnhfMDJfZ2FtZWZsb3dfUkV2dF9jdXRzY2VuZV9ieDAyX2J4NTU3IC0tPg0KPGcgaWQ9Im5vZGUxOCIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPmJ4XzAyX2dhbWVmbG93X1JFdnRfY3V0c2NlbmVfYngwMl9ieDU1NzwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZmY4ODg4IiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjIzNzUuMTIsLTE0NjguMjUgMjM3NS4xMiwtMTUwNC4yNSAyNzg3LjEyLC0xNTA0LjI1IDI3ODcuMTIsLTE0NjguMjUgMjM3NS4xMiwtMTQ2OC4yNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyMzgzLjEyIiB5PSItMTQ4MS40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RnVuY3Rpb24gYnhfMDJfZ2FtZWZsb3dfUkV2dF9jdXRzY2VuZV9ieDAyX2J4NTU3PC90ZXh0Pg0KPC9nPg0KPCEtLSBieF8wMl9nYW1lZmxvd19SRXZ0X2N1dHNjZW5lX2J4MDJfYng1NTdfXzAgLS0+DQo8ZyBpZD0ibm9kZTE5IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+YnhfMDJfZ2FtZWZsb3dfUkV2dF9jdXRzY2VuZV9ieDAyX2J4NTU3X18wPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjIyNi42MiwtMTMwNSAyMjI2LjYyLC0xMzcwLjUgMjkzNS42MiwtMTM3MC41IDI5MzUuNjIsLTEzMDUgMjIyNi42MiwtMTMwNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMjU4MS4xMiIgeT0iLTEzNTMuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+YnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M6OmJ4XzAyX2dhbWVmbG93X1JFdnRfY3V0c2NlbmVfYngwMl9ieDU1NzowPC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iMjIyNi42MiwtMTM0NiAyOTM1LjYyLC0xMzQ2Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjIyMzQuNjIiIHk9Ii0xMzI4LjciIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX1ZpcnR1YWxGdW5jdGlvbiBFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZTwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjIzNC42MiIgeT0iLTEzMTIuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfSW50Q29uc3QgMTU5PC90ZXh0Pg0KPC9nPg0KPCEtLSBieF8wMl9nYW1lZmxvd19SRXZ0X2N1dHNjZW5lX2J4MDJfYng1NTcmIzQ1OyZndDtieF8wMl9nYW1lZmxvd19SRXZ0X2N1dHNjZW5lX2J4MDJfYng1NTdfXzAgLS0+DQo8ZyBpZD0iZWRnZTE0IiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+YnhfMDJfZ2FtZWZsb3dfUkV2dF9jdXRzY2VuZV9ieDAyX2J4NTU3JiM0NTsmZ3Q7YnhfMDJfZ2FtZWZsb3dfUkV2dF9jdXRzY2VuZV9ieDAyX2J4NTU3X18wPC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIGQ9Ik0yNTgxLjEyLC0xNDY3Ljg3QzI1ODEuMTIsLTE0NDYuODkgMjU4MS4xMiwtMTQxMC44NCAyNTgxLjEyLC0xMzgyLjE2Ii8+DQo8cG9seWdvbiBmaWxsPSJibGFjayIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSIyNTg0LjYzLC0xMzgyLjMgMjU4MS4xMywtMTM3Mi4zIDI1NzcuNjMsLTEzODIuMyAyNTg0LjYzLC0xMzgyLjMiLz4NCjwvZz4NCjwhLS0gYnhfMDJfZ2FtZWZsb3dfUkV2dF9jdXRzY2VuZV9ieDAyX2J4NTU3X18wJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzE1OSAtLT4NCjxnIGlkPSJlZGdlMTUiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5ieF8wMl9nYW1lZmxvd19SRXZ0X2N1dHNjZW5lX2J4MDJfYng1NTdfXzA6ZSYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNTk8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZWQiIGQ9Ik0yOTM2LjYyLC0xMzM3Ljc1QzMwNzguNjksLTEzMzcuNzUgMzIzMC42NiwtMTI3NS43MiAzMzMzLjI5LC0xMjIzLjYiLz4NCjxwb2x5Z29uIGZpbGw9Im5vbmUiIHN0cm9rZT0icmVkIiBwb2ludHM9IjMzMzQuNzMsLTEyMjYuOCAzMzQyLjAzLC0xMjE5LjEyIDMzMzEuNTMsLTEyMjAuNTcgMzMzNC43MywtMTIyNi44Ii8+DQo8L2c+DQo8IS0tIGJ4XzAyX2dhbWVmbG93X1JFdnRfY3V0c2NlbmVfYngwMl9ieDU1N19fMTkgLS0+DQo8ZyBpZD0ibm9kZTIwIiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+YnhfMDJfZ2FtZWZsb3dfUkV2dF9jdXRzY2VuZV9ieDAyX2J4NTU3X18xOTwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjIwNDguNSwtMTExOS41IDIwNDguNSwtMTE4NSAyNzY1Ljc1LC0xMTg1IDI3NjUuNzUsLTExMTkuNSAyMDQ4LjUsLTExMTkuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iMjQwNy4xMiIgeT0iLTExNjcuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+YnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M6OmJ4XzAyX2dhbWVmbG93X1JFdnRfY3V0c2NlbmVfYngwMl9ieDU1NzoxOTwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjIwNDguNSwtMTE2MC41IDI3NjUuNzUsLTExNjAuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSIyMDU2LjUiIHk9Ii0xMTQzLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX1JldHVybjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iMjA1Ni41IiB5PSItMTEyNi43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9Ob3RoaW5nPC90ZXh0Pg0KPC9nPg0KPCEtLSBieF8wMl9nYW1lZmxvd19SRXZ0X2N1dHNjZW5lX2J4MDJfYng1NTdfXzAmIzQ1OyZndDtieF8wMl9nYW1lZmxvd19SRXZ0X2N1dHNjZW5lX2J4MDJfYng1NTdfXzE5IC0tPg0KPGcgaWQ9ImVkZ2UxNiIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPmJ4XzAyX2dhbWVmbG93X1JFdnRfY3V0c2NlbmVfYngwMl9ieDU1N19fMCYjNDU7Jmd0O2J4XzAyX2dhbWVmbG93X1JFdnRfY3V0c2NlbmVfYngwMl9ieDU1N19fMTk8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTI1NTAuODIsLTEzMDQuNzlDMjUyMS41NSwtMTI3My45MyAyNDc3LjE0LC0xMjI3LjA4IDI0NDUuNDQsLTExOTMuNjUiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjI0NDguMTMsLTExOTEuNDEgMjQzOC43MSwtMTE4Ni41NiAyNDQzLjA1LC0xMTk2LjIzIDI0NDguMTMsLTExOTEuNDEiLz4NCjwvZz4NCjwhLS0gYnhfMDJfZ2FtZWZsb3dfUkV2dF9jdXRzY2VuZV9ieDAyX2J4NTU3X18yMSAtLT4NCjxnIGlkPSJub2RlMjEiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5ieF8wMl9nYW1lZmxvd19SRXZ0X2N1dHNjZW5lX2J4MDJfYng1NTdfXzIxPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNTYzOS41LC0xMjM3IDU2MzkuNSwtMTI4NiA2MzU2Ljc1LC0xMjg2IDYzNTYuNzUsLTEyMzcgNTYzOS41LC0xMjM3Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSI1OTk4LjEyIiB5PSItMTI2OC43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfQzo6YnhfMDJfZ2FtZWZsb3dfUkV2dF9jdXRzY2VuZV9ieDAyX2J4NTU3OjIxPC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNTYzOS41LC0xMjYxLjUgNjM1Ni43NSwtMTI2MS41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjU2NDcuNSIgeT0iLTEyNDQuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfRW5kT2ZTY3JpcHQ8L3RleHQ+DQo8L2c+DQo8IS0tIGN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfU2tpcCAtLT4NCjxnIGlkPSJub2RlMjIiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5jdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kX1NraXA8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2ZmODg4OCIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI1MDQ3LjEyLC0xNDY4LjI1IDUwNDcuMTIsLTE1MDQuMjUgNTQ1OS4xMiwtMTUwNC4yNSA1NDU5LjEyLC0xNDY4LjI1IDUwNDcuMTIsLTE0NjguMjUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iNTA1NS4xMiIgeT0iLTE0ODEuNDUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkZ1bmN0aW9uIGN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfU2tpcDwvdGV4dD4NCjwvZz4NCjwhLS0gY3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZF9Ta2lwX18wIC0tPg0KPGcgaWQ9Im5vZGUyMyIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPmN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfU2tpcF9fMDwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQ4OTguNjIsLTEzMDUgNDg5OC42MiwtMTM3MC41IDU2MDcuNjIsLTEzNzAuNSA1NjA3LjYyLC0xMzA1IDQ4OTguNjIsLTEzMDUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjUyNTMuMTIiIHk9Ii0xMzUzLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPmJ4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9DOjpjdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kX1NraXA6MDwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQ4OTguNjIsLTEzNDYgNTYwNy42MiwtMTM0NiIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSI0OTA2LjYyIiB5PSItMTMyOC43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9WaXJ0dWFsRnVuY3Rpb24gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGU8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjQ5MDYuNjIiIHk9Ii0xMzEyLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0ludENvbnN0IDE1NDwvdGV4dD4NCjwvZz4NCjwhLS0gY3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZF9Ta2lwJiM0NTsmZ3Q7Y3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZF9Ta2lwX18wIC0tPg0KPGcgaWQ9ImVkZ2UxNyIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPmN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfU2tpcCYjNDU7Jmd0O2N1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfU2tpcF9fMDwvdGl0bGU+DQo8cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBkPSJNNTI1My4xMiwtMTQ2Ny44N0M1MjUzLjEyLC0xNDQ2Ljg5IDUyNTMuMTIsLTE0MTAuODQgNTI1My4xMiwtMTM4Mi4xNiIvPg0KPHBvbHlnb24gZmlsbD0iYmxhY2siIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNTI1Ni42MywtMTM4Mi4zIDUyNTMuMTMsLTEzNzIuMyA1MjQ5LjYzLC0xMzgyLjMgNTI1Ni42MywtMTM4Mi4zIi8+DQo8L2c+DQo8IS0tIGN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfU2tpcF9fMCYjNDU7Jmd0O0V4ZWN1dGVVYmVyZ3JhcGhfYnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX18xNTQgLS0+DQo8ZyBpZD0iZWRnZTE4IiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+Y3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZF9Ta2lwX18wOmUmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTU0PC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0icmVkIiBkPSJNNTYwOC42MiwtMTMzNy43NUM1NjQ5Ljc3LC0xMzM3Ljc1IDU2MjQuMTIsLTExOTQuMzkgNTYyNC4xMiwtMTE1My4yNSA1NjI0LjEyLC0xMTUzLjI1IDU2MjQuMTIsLTExNTMuMjUgNTYyNC4xMiwtODczIDU2MjQuMTIsLTgyMy45OSA1NTc5LjYxLC03ODkuNjEgNTUzNy4xMSwtNzY3Ljk2Ii8+DQo8cG9seWdvbiBmaWxsPSJub25lIiBzdHJva2U9InJlZCIgcG9pbnRzPSI1NTM4LjgzLC03NjQuOSA1NTI4LjMxLC03NjMuNjYgNTUzNS43NiwtNzcxLjE5IDU1MzguODMsLTc2NC45Ii8+DQo8L2c+DQo8IS0tIGN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfU2tpcF9fMTkgLS0+DQo8ZyBpZD0ibm9kZTI0IiBjbGFzcz0ibm9kZSI+DQo8dGl0bGU+Y3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZF9Ta2lwX18xOTwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQ4NzguNSwtMTExOS41IDQ4NzguNSwtMTE4NSA1NTk1Ljc1LC0xMTg1IDU1OTUuNzUsLTExMTkuNSA0ODc4LjUsLTExMTkuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iNTIzNy4xMiIgeT0iLTExNjcuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+YnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M6OmN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfU2tpcDoxOTwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQ4NzguNSwtMTE2MC41IDU1OTUuNzUsLTExNjAuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSI0ODg2LjUiIHk9Ii0xMTQzLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX1JldHVybjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iNDg4Ni41IiB5PSItMTEyNi43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj7ilJzilJDilJzilJBFWF9Ob3RoaW5nPC90ZXh0Pg0KPC9nPg0KPCEtLSBjdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kX1NraXBfXzAmIzQ1OyZndDtjdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kX1NraXBfXzE5IC0tPg0KPGcgaWQ9ImVkZ2UxOSIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPmN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfU2tpcF9fMCYjNDU7Jmd0O2N1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfU2tpcF9fMTk8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTUyNTAuMzQsLTEzMDQuNzlDNTI0Ny43MywtMTI3NC44NCA1MjQzLjgsLTEyMjkuODUgNTI0MC45MSwtMTE5Ni42NiIvPg0KPHBvbHlnb24gZmlsbD0iYmxhY2siIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNTI0NC40MiwtMTE5Ni42MyA1MjQwLjA3LC0xMTg2Ljk3IDUyMzcuNDUsLTExOTcuMjQgNTI0NC40MiwtMTE5Ni42MyIvPg0KPC9nPg0KPCEtLSBjdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kX1NraXBfXzIxIC0tPg0KPGcgaWQ9Im5vZGUyNSIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPmN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfU2tpcF9fMjE8L3RpdGxlPg0KPHBvbHlnb24gZmlsbD0iI2VlZWVlZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI1MjY4LjUsLTEzODkuNSA1MjY4LjUsLTE0MzguNSA1OTg1Ljc1LC0xNDM4LjUgNTk4NS43NSwtMTM4OS41IDUyNjguNSwtMTM4OS41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ibWlkZGxlIiB4PSI1NjI3LjEyIiB5PSItMTQyMS4yIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfQzo6Y3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZF9Ta2lwOjIxPC90ZXh0Pg0KPHBvbHlsaW5lIGZpbGw9Im5vbmUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNTI2OC41LC0xNDE0IDU5ODUuNzUsLTE0MTQiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iNTI3Ni41IiB5PSItMTM5Ni43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9FbmRPZlNjcmlwdDwvdGV4dD4NCjwvZz4NCjwhLS0gY3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZCAtLT4NCjxnIGlkPSJub2RlMjYiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5jdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNmZjg4ODgiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNDMxNC43NSwtMTQ2OC4yNSA0MzE0Ljc1LC0xNTA0LjI1IDQ2ODUuNSwtMTUwNC4yNSA0Njg1LjUsLTE0NjguMjUgNDMxNC43NSwtMTQ2OC4yNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSI0MzIyLjc1IiB5PSItMTQ4MS40NSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RnVuY3Rpb24gY3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZDwvdGV4dD4NCjwvZz4NCjwhLS0gY3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZF9fMCAtLT4NCjxnIGlkPSJub2RlMjciIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5jdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kX18wPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNDE2Ni4yNSwtMTMwNSA0MTY2LjI1LC0xMzcwLjUgNDgzNCwtMTM3MC41IDQ4MzQsLTEzMDUgNDE2Ni4yNSwtMTMwNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iNDUwMC4xMiIgeT0iLTEzNTMuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+YnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M6OmN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmQ6MDwvdGV4dD4NCjxwb2x5bGluZSBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQxNjYuMjUsLTEzNDYgNDgzNCwtMTM0NiIvPg0KPHRleHQgdGV4dC1hbmNob3I9InN0YXJ0IiB4PSI0MTc0LjI1IiB5PSItMTMyOC43IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0LjAwIj5FWF9WaXJ0dWFsRnVuY3Rpb24gRXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGU8L3RleHQ+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjQxNzQuMjUiIHk9Ii0xMzEyLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPuKUnOKUkOKUnOKUkEVYX0ludENvbnN0IDE0OTwvdGV4dD4NCjwvZz4NCjwhLS0gY3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZCYjNDU7Jmd0O2N1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfXzAgLS0+DQo8ZyBpZD0iZWRnZTIwIiBjbGFzcz0iZWRnZSI+DQo8dGl0bGU+Y3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZCYjNDU7Jmd0O2N1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfXzA8L3RpdGxlPg0KPHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgZD0iTTQ1MDAuMTIsLTE0NjcuODdDNDUwMC4xMiwtMTQ0Ni44OSA0NTAwLjEyLC0xNDEwLjg0IDQ1MDAuMTIsLTEzODIuMTYiLz4NCjxwb2x5Z29uIGZpbGw9ImJsYWNrIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQ1MDMuNjMsLTEzODIuMyA0NTAwLjEzLC0xMzcyLjMgNDQ5Ni42MywtMTM4Mi4zIDQ1MDMuNjMsLTEzODIuMyIvPg0KPC9nPg0KPCEtLSBjdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kX18wJiM0NTsmZ3Q7RXhlY3V0ZVViZXJncmFwaF9ieF8wMl9DYXJfQ291cnNlX0JlZm9yZV9EYXJrQ3ViZV9CYXR0bGVfXzE0OSAtLT4NCjxnIGlkPSJlZGdlMjEiIGNsYXNzPSJlZGdlIj4NCjx0aXRsZT5jdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kX18wOmUmIzQ1OyZndDtFeGVjdXRlVWJlcmdyYXBoX2J4XzAyX0Nhcl9Db3Vyc2VfQmVmb3JlX0RhcmtDdWJlX0JhdHRsZV9fMTQ5PC90aXRsZT4NCjxwYXRoIGZpbGw9Im5vbmUiIHN0cm9rZT0icmVkIiBkPSJNNDgzNSwtMTMzNy43NUM0ODg2LjM3LC0xMzM3Ljc1IDQ4NjYuMzQsLTExNTYuMzUgNDg1NS40MSwtMTA3OC42NSIvPg0KPHBvbHlnb24gZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZWQiIHBvaW50cz0iNDg1OC45MSwtMTA3OC40NCA0ODU0LjAyLC0xMDY5LjA0IDQ4NTEuOTksLTEwNzkuNDQgNDg1OC45MSwtMTA3OC40NCIvPg0KPC9nPg0KPCEtLSBjdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kX18xOSAtLT4NCjxnIGlkPSJub2RlMjgiIGNsYXNzPSJub2RlIj4NCjx0aXRsZT5jdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kX18xOTwvdGl0bGU+DQo8cG9seWdvbiBmaWxsPSIjZWVlZWVlIiBzdHJva2U9ImJsYWNrIiBwb2ludHM9IjQxNDYuMTIsLTExMTkuNSA0MTQ2LjEyLC0xMTg1IDQ4MjIuMTIsLTExODUgNDgyMi4xMiwtMTExOS41IDQxNDYuMTIsLTExMTkuNSIvPg0KPHRleHQgdGV4dC1hbmNob3I9Im1pZGRsZSIgeD0iNDQ4NC4xMiIgeT0iLTExNjcuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+YnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M6OmN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmQ6MTk8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI0MTQ2LjEyLC0xMTYwLjUgNDgyMi4xMiwtMTE2MC41Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjQxNTQuMTIiIHk9Ii0xMTQzLjIiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTQuMDAiPkVYX1JldHVybjwvdGV4dD4NCjx0ZXh0IHRleHQtYW5jaG9yPSJzdGFydCIgeD0iNDE1NC4xMiIgeT0iLTExMjYuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+4pSc4pSQ4pSc4pSQRVhfTm90aGluZzwvdGV4dD4NCjwvZz4NCjwhLS0gY3V0c2NlbmVfYngwMl9ieDU1N19SRXZ0X2J4NTU3X0VuZF9fMCYjNDU7Jmd0O2N1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfXzE5IC0tPg0KPGcgaWQ9ImVkZ2UyMiIgY2xhc3M9ImVkZ2UiPg0KPHRpdGxlPmN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfXzAmIzQ1OyZndDtjdXRzY2VuZV9ieDAyX2J4NTU3X1JFdnRfYng1NTdfRW5kX18xOTwvdGl0bGU+DQo8cGF0aCBmaWxsPSJub25lIiBzdHJva2U9ImJsYWNrIiBkPSJNNDQ5Ny4zNCwtMTMwNC43OUM0NDk0LjczLC0xMjc0Ljg0IDQ0OTAuOCwtMTIyOS44NSA0NDg3LjkxLC0xMTk2LjY2Ii8+DQo8cG9seWdvbiBmaWxsPSJibGFjayIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI0NDkxLjQyLC0xMTk2LjYzIDQ0ODcuMDcsLTExODYuOTcgNDQ4NC40NSwtMTE5Ny4yNCA0NDkxLjQyLC0xMTk2LjYzIi8+DQo8L2c+DQo8IS0tIGN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfXzIxIC0tPg0KPGcgaWQ9Im5vZGUyOSIgY2xhc3M9Im5vZGUiPg0KPHRpdGxlPmN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmRfXzIxPC90aXRsZT4NCjxwb2x5Z29uIGZpbGw9IiNlZWVlZWUiIHN0cm9rZT0iYmxhY2siIHBvaW50cz0iNTYzOS4xMiwtODQ5LjUgNTYzOS4xMiwtODk4LjUgNjMxNS4xMiwtODk4LjUgNjMxNS4xMiwtODQ5LjUgNTYzOS4xMiwtODQ5LjUiLz4NCjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjU5NzcuMTIiIHk9Ii04ODEuMiIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+YnhfMDJfQ2FyX0NvdXJzZV9CZWZvcmVfRGFya0N1YmVfQmF0dGxlX0M6OmN1dHNjZW5lX2J4MDJfYng1NTdfUkV2dF9ieDU1N19FbmQ6MjE8L3RleHQ+DQo8cG9seWxpbmUgZmlsbD0ibm9uZSIgc3Ryb2tlPSJibGFjayIgcG9pbnRzPSI1NjM5LjEyLC04NzQgNjMxNS4xMiwtODc0Ii8+DQo8dGV4dCB0ZXh0LWFuY2hvcj0ic3RhcnQiIHg9IjU2NDcuMTIiIHk9Ii04NTYuNyIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNC4wMCI+RVhfRW5kT2ZTY3JpcHQ8L3RleHQ+DQo8L2c+DQo8L2c+DQo8L3N2Zz4NCg=="), m => m.codePointAt(0)));
-      container.innerHTML = data.substring(data.indexOf("<svg"));
-      const map = container.children[0];
-      minimap.src = URL.createObjectURL(new Blob([data], {'type':'image/svg+xml'}));
+  <div id="empty-state">
+    <div class="empty-title">SVG Viewer</div>
+    <div class="empty-subtitle">Drop an SVG file here</div>
+    <div class="empty-divider">or</div>
+    <div class="empty-actions">
+      <button id="empty-file-btn">Choose File</button>
+      <select class="examples-select">
+        <option value="">Load Example...</option>
+      </select>
+    </div>
+  </div>
 
-      function setScale(s) {
-        map.style.scale = s;
-        map.style.transformOrigin = '0 0';
-        const bounds = map.getBoundingClientRect();
-        container.style.width = bounds.width + 'px';
-        container.style.height = bounds.height + 'px';
-        update();
-      }
+  <div id="viewport" style="display: none;">
+    <div id="svg-wrapper">
+      <div id="svg-container"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 14.1.1 (20251213.1925)
+ -->
+<!-- Pages: 1 -->
+<svg width="5368pt" height="811pt"
+ viewBox="0.00 0.00 5368.00 811.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 806.5)">
+<polygon fill="white" stroke="none" points="-4,4 -4,-806.5 5363.88,-806.5 5363.88,4 -4,4"/>
+<!-- bx_02_Car_Course_Before_DarkCube_Battle_C -->
+<g id="node1" class="node">
+<title>bx_02_Car_Course_Before_DarkCube_Battle_C</title>
+<polygon fill="#d4ffd4" stroke="none" points="8,-722 8,-798 525.5,-798 525.5,-722 8,-722"/>
+<polygon fill="none" stroke="black" points="8,-722 8,-798 525.5,-798 525.5,-722 8,-722"/>
+<text xml:space="preserve" text-anchor="start" x="11" y="-782.7" font-family="monospace" font-size="14.00" fill="#800080">ClassExport:</text>
+<text xml:space="preserve" text-anchor="start" x="110" y="-782.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="118.25" y="-782.7" font-family="monospace" font-size="14.00" fill="#996300">bx_02_Car_Course_Before_DarkCube_Battle_C</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-768.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-768.7" font-family="monospace" font-size="14.00" fill="#800080">SuperStruct:</text>
+<text xml:space="preserve" text-anchor="start" x="126.5" y="-768.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="151.25" y="-768.7" font-family="monospace" font-size="14.00" fill="#996300">import /Script/TresGame&#45;&gt;TresLevelScriptActor</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-754.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-754.7" font-family="monospace" font-size="14.00" fill="#800080">Properties:</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-740.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="44" y="-740.7" font-family="monospace" font-size="14.00" fill="#996300">Struct</text>
+<text xml:space="preserve" text-anchor="start" x="93.5" y="-740.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="134.75" y="-740.7" font-family="monospace" font-size="14.00" fill="#006400">UberGraphFrame</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-726.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="60.5" y="-726.7" font-family="monospace" font-size="14.00" fill="#800080">CPF_Transient|CPF_DuplicateTransient</text>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle -->
+<g id="node2" class="node">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle</title>
+<polygon fill="#ffd4d4" stroke="none" points="936.62,-750.5 936.62,-798.5 1478.88,-798.5 1478.88,-750.5 936.62,-750.5"/>
+<polygon fill="none" stroke="black" points="936.62,-750.5 936.62,-798.5 1478.88,-798.5 1478.88,-750.5 936.62,-750.5"/>
+<text xml:space="preserve" text-anchor="start" x="939.62" y="-783.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="1005.62" y="-783.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1013.88" y="-783.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle</text>
+<text xml:space="preserve" text-anchor="start" x="939.62" y="-769.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="956.12" y="-769.2" font-family="monospace" font-size="14.00" fill="#996300">Int</text>
+<text xml:space="preserve" text-anchor="start" x="980.88" y="-769.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="1005.62" y="-769.2" font-family="monospace" font-size="14.00" fill="#006400">EntryPoint</text>
+<text xml:space="preserve" text-anchor="start" x="939.62" y="-755.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="972.62" y="-755.2" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_0 -->
+<g id="node3" class="node">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="779.88,-661.5 779.88,-706.5 1635.62,-706.5 1635.62,-661.5 779.88,-661.5"/>
+<polygon fill="none" stroke="black" points="779.88,-684 779.88,-706.5 1635.62,-706.5 1635.62,-684 779.88,-684"/>
+<text xml:space="preserve" text-anchor="start" x="782.88" y="-690.2" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle @ 0</text>
+<polygon fill="none" stroke="black" points="779.88,-661.5 779.88,-684 1635.62,-684 1635.62,-661.5 779.88,-661.5"/>
+<text xml:space="preserve" text-anchor="start" x="782.88" y="-668.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="807.62" y="-668.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PushExecutionFlow</text>
+<text xml:space="preserve" text-anchor="start" x="972.62" y="-668.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="980.88" y="-668.7" font-family="monospace" font-size="14.00" fill="#555555">210</text>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_0 -->
+<g id="edge1" class="edge">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_0:n</title>
+<path fill="none" stroke="black" d="M1207.75,-746.52C1207.75,-738.86 1207.75,-730.29 1207.75,-721.84"/>
+<polygon fill="black" stroke="black" points="1211.25,-722.01 1207.75,-712.01 1204.25,-722.01 1211.25,-722.01"/>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_210 -->
+<g id="node4" class="node">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_210</title>
+<polygon fill="#eeeeee" stroke="none" points="1438.62,-561 1438.62,-617.5 2310.88,-617.5 2310.88,-561 1438.62,-561"/>
+<polygon fill="none" stroke="black" points="1438.62,-595 1438.62,-617.5 2310.88,-617.5 2310.88,-595 1438.62,-595"/>
+<text xml:space="preserve" text-anchor="start" x="1441.62" y="-601.2" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle @ 210</text>
+<polygon fill="none" stroke="black" points="1438.62,-561 1438.62,-595 2310.88,-595 2310.88,-561 1438.62,-561"/>
+<text xml:space="preserve" text-anchor="start" x="1441.62" y="-579.7" font-family="monospace" font-size="14.00" fill="#555555">210: </text>
+<text xml:space="preserve" text-anchor="start" x="1482.88" y="-579.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="1441.62" y="-565.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">211: </text>
+<text xml:space="preserve" text-anchor="start" x="1482.88" y="-565.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1499.38" y="-565.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_0&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_210 -->
+<g id="edge2" class="edge">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_0:e&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_210:n</title>
+<path fill="none" stroke="purple" stroke-width="2" stroke-dasharray="1,5" d="M1644.49,-684C1693.06,-684 1845.86,-676.05 1871.18,-633.96"/>
+<polygon fill="none" stroke="purple" stroke-width="2" points="1874.52,-634.99 1873.92,-624.41 1867.8,-633.06 1874.52,-634.99"/>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_5 -->
+<g id="node10" class="node">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_5</title>
+<polygon fill="#eeeeee" stroke="none" points="548.88,-561 548.88,-617.5 1404.62,-617.5 1404.62,-561 548.88,-561"/>
+<polygon fill="none" stroke="black" points="548.88,-595 548.88,-617.5 1404.62,-617.5 1404.62,-595 548.88,-595"/>
+<text xml:space="preserve" text-anchor="start" x="551.88" y="-601.2" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle @ 5</text>
+<polygon fill="none" stroke="black" points="548.88,-561 548.88,-595 1404.62,-595 1404.62,-561 548.88,-561"/>
+<text xml:space="preserve" text-anchor="start" x="551.88" y="-579.7" font-family="monospace" font-size="14.00" fill="#555555">5: </text>
+<text xml:space="preserve" text-anchor="start" x="576.62" y="-579.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ComputedJump</text>
+<text xml:space="preserve" text-anchor="start" x="551.88" y="-565.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">6: </text>
+<text xml:space="preserve" text-anchor="start" x="576.62" y="-565.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="593.12" y="-565.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="725.12" y="-565.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="733.38" y="-565.7" font-family="monospace" font-size="14.00" fill="#006400">EntryPoint</text>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_0&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_5 -->
+<g id="edge3" class="edge">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_0&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_5:n</title>
+<path fill="none" stroke="black" d="M1024.61,-657.58C1003.37,-650.92 986.84,-642.57 980.07,-632.14"/>
+<polygon fill="black" stroke="black" points="983.52,-631.45 977.2,-622.94 976.84,-633.53 983.52,-631.45"/>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_92 -->
+<g id="node5" class="node">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_92</title>
+<polygon fill="#eeeeee" stroke="none" points="3577.75,-202.5 3577.75,-259 4441.75,-259 4441.75,-202.5 3577.75,-202.5"/>
+<polygon fill="none" stroke="black" points="3577.75,-236.5 3577.75,-259 4441.75,-259 4441.75,-236.5 3577.75,-236.5"/>
+<text xml:space="preserve" text-anchor="start" x="3580.75" y="-242.7" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle @ 92</text>
+<polygon fill="none" stroke="black" points="3577.75,-202.5 3577.75,-236.5 4441.75,-236.5 4441.75,-202.5 3577.75,-202.5"/>
+<text xml:space="preserve" text-anchor="start" x="3580.75" y="-221.2" font-family="monospace" font-size="14.00" fill="#555555">92: </text>
+<text xml:space="preserve" text-anchor="start" x="3613.75" y="-221.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlowIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="3580.75" y="-207.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">93: </text>
+<text xml:space="preserve" text-anchor="start" x="3613.75" y="-207.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3630.25" y="-207.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3787" y="-207.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3795.25" y="-207.2" font-family="monospace" font-size="14.00" fill="#006400">ManualColor</text>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_102 -->
+<g id="node6" class="node">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_102</title>
+<polygon fill="#eeeeee" stroke="none" points="3528.25,-4 3528.25,-158.5 4491.25,-158.5 4491.25,-4 3528.25,-4"/>
+<polygon fill="none" stroke="black" points="3528.25,-136 3528.25,-158.5 4491.25,-158.5 4491.25,-136 3528.25,-136"/>
+<text xml:space="preserve" text-anchor="start" x="3576.62" y="-142.2" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle @ 102</text>
+<polygon fill="none" stroke="black" points="3528.25,-4 3528.25,-136 4491.25,-136 4491.25,-4 3528.25,-4"/>
+<text xml:space="preserve" text-anchor="start" x="3531.25" y="-120.7" font-family="monospace" font-size="14.00" fill="#555555">102: </text>
+<text xml:space="preserve" text-anchor="start" x="3572.5" y="-120.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="3531.25" y="-106.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">103: </text>
+<text xml:space="preserve" text-anchor="start" x="3572.5" y="-106.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3589" y="-106.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3745.75" y="-106.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3754" y="-106.7" font-family="monospace" font-size="14.00" fill="#006400">SM_bx_Pro_TraLightC7_ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="3531.25" y="-92.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">124: </text>
+<text xml:space="preserve" text-anchor="start" x="3572.5" y="-92.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3589" y="-92.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3721" y="-92.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3729.25" y="-92.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickBxSingouki&#45;&gt;SetManualColor</text>
+<text xml:space="preserve" text-anchor="start" x="3531.25" y="-78.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">133: </text>
+<text xml:space="preserve" text-anchor="start" x="3572.5" y="-78.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3605.5" y="-78.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="3531.25" y="-64.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">134: </text>
+<text xml:space="preserve" text-anchor="start" x="3572.5" y="-64.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3605.5" y="-64.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ByteConst</text>
+<text xml:space="preserve" text-anchor="start" x="3704.5" y="-64.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3712.75" y="-64.7" font-family="monospace" font-size="14.00" fill="#0000cd">0</text>
+<text xml:space="preserve" text-anchor="start" x="3531.25" y="-50.7" font-family="monospace" font-size="14.00" fill="#555555">137: </text>
+<text xml:space="preserve" text-anchor="start" x="3572.5" y="-50.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="3531.25" y="-36.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">138: </text>
+<text xml:space="preserve" text-anchor="start" x="3572.5" y="-36.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3589" y="-36.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3745.75" y="-36.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3754" y="-36.7" font-family="monospace" font-size="14.00" fill="#006400">ManualColor</text>
+<text xml:space="preserve" text-anchor="start" x="3531.25" y="-22.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">147: </text>
+<text xml:space="preserve" text-anchor="start" x="3572.5" y="-22.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3589" y="-22.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="3531.25" y="-8.7" font-family="monospace" font-size="14.00" fill="#555555">148: </text>
+<text xml:space="preserve" text-anchor="start" x="3572.5" y="-8.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlow</text>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_92&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_102 -->
+<g id="edge4" class="edge">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_92&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_102:n</title>
+<path fill="none" stroke="green" d="M4009.75,-198.61C4009.75,-190.8 4009.75,-182.23 4009.75,-173.81"/>
+<polygon fill="green" stroke="green" points="4013.25,-174.01 4009.75,-164.01 4006.25,-174.01 4013.25,-174.01"/>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_159 -->
+<g id="node7" class="node">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_159</title>
+<polygon fill="#eeeeee" stroke="none" points="2576.25,-303 2576.25,-597.5 3539.25,-597.5 3539.25,-303 2576.25,-303"/>
+<polygon fill="none" stroke="black" points="2576.25,-575 2576.25,-597.5 3539.25,-597.5 3539.25,-575 2576.25,-575"/>
+<text xml:space="preserve" text-anchor="start" x="2624.62" y="-581.2" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle @ 159</text>
+<polygon fill="none" stroke="black" points="2576.25,-303 2576.25,-575 3539.25,-575 3539.25,-303 2576.25,-303"/>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-559.7" font-family="monospace" font-size="14.00" fill="#555555">159: </text>
+<text xml:space="preserve" text-anchor="start" x="2620.5" y="-559.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-545.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">160: </text>
+<text xml:space="preserve" text-anchor="start" x="2620.5" y="-545.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2637" y="-545.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2793.75" y="-545.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2802" y="-545.7" font-family="monospace" font-size="14.00" fill="#006400">SM_bx_Pro_TraLightC7_ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle_RefProperty</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-531.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">181: </text>
+<text xml:space="preserve" text-anchor="start" x="2620.5" y="-531.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2637" y="-531.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2769" y="-531.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2777.25" y="-531.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/TresGame&#45;&gt;TresGimmickBxSingouki&#45;&gt;SetManualColor</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-517.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">190: </text>
+<text xml:space="preserve" text-anchor="start" x="2620.5" y="-517.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2653.5" y="-517.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-503.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">191: </text>
+<text xml:space="preserve" text-anchor="start" x="2620.5" y="-503.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2653.5" y="-503.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ByteConst</text>
+<text xml:space="preserve" text-anchor="start" x="2752.5" y="-503.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2760.75" y="-503.7" font-family="monospace" font-size="14.00" fill="#0000cd">2</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-489.7" font-family="monospace" font-size="14.00" fill="#555555">194: </text>
+<text xml:space="preserve" text-anchor="start" x="2620.5" y="-489.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-475.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">195: </text>
+<text xml:space="preserve" text-anchor="start" x="2620.5" y="-475.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2637" y="-475.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2793.75" y="-475.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2802" y="-475.7" font-family="monospace" font-size="14.00" fill="#006400">ManualColor</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-461.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">204: </text>
+<text xml:space="preserve" text-anchor="start" x="2620.5" y="-461.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2637" y="-461.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-447.7" font-family="monospace" font-size="14.00" fill="#555555">205: </text>
+<text xml:space="preserve" text-anchor="start" x="2620.5" y="-447.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="2678.25" y="-447.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2686.5" y="-447.7" font-family="monospace" font-size="14.00" fill="#555555">15</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-433.7" font-family="monospace" font-size="14.00" fill="#555555">15: </text>
+<text xml:space="preserve" text-anchor="start" x="2612.25" y="-433.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-419.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">16: </text>
+<text xml:space="preserve" text-anchor="start" x="2612.25" y="-419.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2628.75" y="-419.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="2744.25" y="-419.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2752.5" y="-419.7" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__KismetSystemLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-405.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">37: </text>
+<text xml:space="preserve" text-anchor="start" x="2612.25" y="-405.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2628.75" y="-405.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2760.75" y="-405.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2769" y="-405.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetSystemLibrary&#45;&gt;RetriggerableDelay</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-391.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">46: </text>
+<text xml:space="preserve" text-anchor="start" x="2612.25" y="-391.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2645.25" y="-391.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-377.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">47: </text>
+<text xml:space="preserve" text-anchor="start" x="2612.25" y="-377.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2645.25" y="-377.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FloatConst</text>
+<text xml:space="preserve" text-anchor="start" x="2752.5" y="-377.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2760.75" y="-377.7" font-family="monospace" font-size="14.00" fill="#0000cd">15</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-363.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">52: </text>
+<text xml:space="preserve" text-anchor="start" x="2612.25" y="-363.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2645.25" y="-363.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructConst</text>
+<text xml:space="preserve" text-anchor="start" x="2760.75" y="-363.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2769" y="-363.7" font-family="monospace" font-size="14.00" fill="#996300">import /Script/Engine&#45;&gt;LatentActionInfo</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-349.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">65: </text>
+<text xml:space="preserve" text-anchor="start" x="2612.25" y="-349.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2661.75" y="-349.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_SkipOffsetConst</text>
+<text xml:space="preserve" text-anchor="start" x="2810.25" y="-349.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2818.5" y="-349.7" font-family="monospace" font-size="14.00" fill="#555555">92</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-335.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">70: </text>
+<text xml:space="preserve" text-anchor="start" x="2612.25" y="-335.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2661.75" y="-335.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="2752.5" y="-335.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2760.75" y="-335.7" font-family="monospace" font-size="14.00" fill="#0000cd">&#45;2048876842</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-321.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">75: </text>
+<text xml:space="preserve" text-anchor="start" x="2612.25" y="-321.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2661.75" y="-321.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_NameConst</text>
+<text xml:space="preserve" text-anchor="start" x="2760.75" y="-321.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2769" y="-321.7" font-family="monospace" font-size="14.00" fill="#006400">ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle</text>
+<text xml:space="preserve" text-anchor="start" x="2579.25" y="-307.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">88: </text>
+<text xml:space="preserve" text-anchor="start" x="2612.25" y="-307.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2661.75" y="-307.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_159&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_92 -->
+<g id="edge5" class="edge">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_159:e&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_92:n</title>
+<path fill="none" stroke="orange" stroke-dasharray="5,2" d="M3548.1,-450.25C3564.93,-450.25 3544.98,-311.03 3556.75,-299 3589.5,-265.51 3951.38,-306.63 4003.51,-272.43"/>
+<polygon fill="none" stroke="orange" points="4006.32,-274.53 4008.91,-264.26 4000.48,-270.67 4006.32,-274.53"/>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_91 -->
+<g id="node11" class="node">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_91</title>
+<polygon fill="#eeeeee" stroke="none" points="2625.75,-208.25 2625.75,-253.25 3489.75,-253.25 3489.75,-208.25 2625.75,-208.25"/>
+<polygon fill="none" stroke="black" points="2625.75,-230.75 2625.75,-253.25 3489.75,-253.25 3489.75,-230.75 2625.75,-230.75"/>
+<text xml:space="preserve" text-anchor="start" x="2628.75" y="-236.95" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle @ 91</text>
+<polygon fill="none" stroke="black" points="2625.75,-208.25 2625.75,-230.75 3489.75,-230.75 3489.75,-208.25 2625.75,-208.25"/>
+<text xml:space="preserve" text-anchor="start" x="2628.75" y="-215.45" font-family="monospace" font-size="14.00" fill="#555555">91: </text>
+<text xml:space="preserve" text-anchor="start" x="2661.75" y="-215.45" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlow</text>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_159&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_91 -->
+<g id="edge6" class="edge">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_159&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_91:n</title>
+<path fill="none" stroke="black" d="M3057.75,-299.17C3057.75,-289.16 3057.75,-279.18 3057.75,-269.39"/>
+<polygon fill="black" stroke="black" points="3061.25,-269.51 3057.75,-259.51 3054.25,-269.51 3061.25,-269.51"/>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_154 -->
+<g id="node8" class="node">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_154</title>
+<polygon fill="#eeeeee" stroke="none" points="3573.62,-427.75 3573.62,-472.75 4445.88,-472.75 4445.88,-427.75 3573.62,-427.75"/>
+<polygon fill="none" stroke="black" points="3573.62,-450.25 3573.62,-472.75 4445.88,-472.75 4445.88,-450.25 3573.62,-450.25"/>
+<text xml:space="preserve" text-anchor="start" x="3576.62" y="-456.45" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle @ 154</text>
+<polygon fill="none" stroke="black" points="3573.62,-427.75 3573.62,-450.25 4445.88,-450.25 4445.88,-427.75 3573.62,-427.75"/>
+<text xml:space="preserve" text-anchor="start" x="3576.62" y="-434.95" font-family="monospace" font-size="14.00" fill="#555555">154: </text>
+<text xml:space="preserve" text-anchor="start" x="3617.88" y="-434.95" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="3675.62" y="-434.95" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3683.88" y="-434.95" font-family="monospace" font-size="14.00" fill="#555555">92</text>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_154&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_92 -->
+<g id="edge7" class="edge">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_154&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_92:n</title>
+<path fill="none" stroke="black" d="M4009.75,-423.94C4009.75,-390.43 4009.75,-329.13 4009.75,-274.24"/>
+<polygon fill="black" stroke="black" points="4013.25,-274.51 4009.75,-264.51 4006.25,-274.51 4013.25,-274.51"/>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_149 -->
+<g id="node9" class="node">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_149</title>
+<polygon fill="#eeeeee" stroke="none" points="4479.62,-427.75 4479.62,-472.75 5351.88,-472.75 5351.88,-427.75 4479.62,-427.75"/>
+<polygon fill="none" stroke="black" points="4479.62,-450.25 4479.62,-472.75 5351.88,-472.75 5351.88,-450.25 4479.62,-450.25"/>
+<text xml:space="preserve" text-anchor="start" x="4482.62" y="-456.45" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle @ 149</text>
+<polygon fill="none" stroke="black" points="4479.62,-427.75 4479.62,-450.25 5351.88,-450.25 5351.88,-427.75 4479.62,-427.75"/>
+<text xml:space="preserve" text-anchor="start" x="4482.62" y="-434.95" font-family="monospace" font-size="14.00" fill="#555555">149: </text>
+<text xml:space="preserve" text-anchor="start" x="4523.88" y="-434.95" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="4581.62" y="-434.95" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4589.88" y="-434.95" font-family="monospace" font-size="14.00" fill="#555555">92</text>
+</g>
+<!-- ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_149&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_92 -->
+<g id="edge8" class="edge">
+<title>ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_149&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_92:n</title>
+<path fill="none" stroke="black" d="M4854.75,-423.76C4768.93,-389.13 4606.9,-328.19 4462.75,-299 4416.74,-289.68 4064.74,-310.22 4015.47,-272.58"/>
+<polygon fill="black" stroke="black" points="4018.66,-271.09 4010.53,-264.3 4012.65,-274.68 4018.66,-271.09"/>
+</g>
+<!-- bx_02_gameflow_REvt_cutscene_bx02_bx557 -->
+<g id="node12" class="node">
+<title>bx_02_gameflow_REvt_cutscene_bx02_bx557</title>
+<polygon fill="#ffd4d4" stroke="none" points="2491.75,-772.75 2491.75,-795.25 2893.75,-795.25 2893.75,-772.75 2491.75,-772.75"/>
+<polygon fill="none" stroke="black" points="2491.75,-772.75 2491.75,-795.25 2893.75,-795.25 2893.75,-772.75 2491.75,-772.75"/>
+<text xml:space="preserve" text-anchor="start" x="2494.75" y="-779.95" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="2560.75" y="-779.95" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2569" y="-779.95" font-family="monospace" font-size="14.00" fill="#6a0080">bx_02_gameflow_REvt_cutscene_bx02_bx557</text>
+</g>
+<!-- bx_02_gameflow_REvt_cutscene_bx02_bx557__block_0 -->
+<g id="node13" class="node">
+<title>bx_02_gameflow_REvt_cutscene_bx02_bx557__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="2335,-641.5 2335,-726 3050.5,-726 3050.5,-641.5 2335,-641.5"/>
+<polygon fill="none" stroke="black" points="2335,-703.5 2335,-726 3050.5,-726 3050.5,-703.5 2335,-703.5"/>
+<text xml:space="preserve" text-anchor="start" x="2338" y="-709.7" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::bx_02_gameflow_REvt_cutscene_bx02_bx557 @ 0</text>
+<polygon fill="none" stroke="black" points="2335,-641.5 2335,-703.5 3050.5,-703.5 3050.5,-641.5 2335,-641.5"/>
+<text xml:space="preserve" text-anchor="start" x="2338" y="-688.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="2362.75" y="-688.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2511.25" y="-688.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2519.5" y="-688.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle</text>
+<text xml:space="preserve" text-anchor="start" x="2338" y="-674.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="2371" y="-674.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2387.5" y="-674.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="2478.25" y="-674.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2486.5" y="-674.2" font-family="monospace" font-size="14.00" fill="#0000cd">159</text>
+<text xml:space="preserve" text-anchor="start" x="2338" y="-660.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="2371" y="-660.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="2338" y="-646.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="2371" y="-646.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2387.5" y="-646.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- bx_02_gameflow_REvt_cutscene_bx02_bx557&#45;&gt;bx_02_gameflow_REvt_cutscene_bx02_bx557__block_0 -->
+<g id="edge9" class="edge">
+<title>bx_02_gameflow_REvt_cutscene_bx02_bx557&#45;&gt;bx_02_gameflow_REvt_cutscene_bx02_bx557__block_0:n</title>
+<path fill="none" stroke="black" d="M2692.75,-766.29C2692.75,-759.04 2692.75,-750.2 2692.75,-741.4"/>
+<polygon fill="black" stroke="black" points="2696.25,-741.51 2692.75,-731.51 2689.25,-741.51 2696.25,-741.51"/>
+</g>
+<!-- bx_02_gameflow_REvt_cutscene_bx02_bx557__block_0&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_159 -->
+<g id="edge10" class="edge">
+<title>bx_02_gameflow_REvt_cutscene_bx02_bx557__block_0:e&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_159:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M3059.15,-683.75C3091.71,-683.75 3065.16,-647.51 3058.97,-613.75"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="3057.99,-603.92 3063.46,-613.43 3058.74,-606.43 3059.48,-613.83 3058.98,-613.88 3058.48,-613.93 3057.75,-606.52 3054.5,-614.32 3057.99,-603.92"/>
+</g>
+<!-- cutscene_bx02_bx557_REvt_bx557_End_Skip -->
+<g id="node14" class="node">
+<title>cutscene_bx02_bx557_REvt_bx557_End_Skip</title>
+<polygon fill="#ffd4d4" stroke="none" points="3443.75,-772.75 3443.75,-795.25 3845.75,-795.25 3845.75,-772.75 3443.75,-772.75"/>
+<polygon fill="none" stroke="black" points="3443.75,-772.75 3443.75,-795.25 3845.75,-795.25 3845.75,-772.75 3443.75,-772.75"/>
+<text xml:space="preserve" text-anchor="start" x="3446.75" y="-779.95" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="3512.75" y="-779.95" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3521" y="-779.95" font-family="monospace" font-size="14.00" fill="#6a0080">cutscene_bx02_bx557_REvt_bx557_End_Skip</text>
+</g>
+<!-- cutscene_bx02_bx557_REvt_bx557_End_Skip__block_0 -->
+<g id="node15" class="node">
+<title>cutscene_bx02_bx557_REvt_bx557_End_Skip__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="3287,-641.5 3287,-726 4002.5,-726 4002.5,-641.5 3287,-641.5"/>
+<polygon fill="none" stroke="black" points="3287,-703.5 3287,-726 4002.5,-726 4002.5,-703.5 3287,-703.5"/>
+<text xml:space="preserve" text-anchor="start" x="3290" y="-709.7" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::cutscene_bx02_bx557_REvt_bx557_End_Skip @ 0</text>
+<polygon fill="none" stroke="black" points="3287,-641.5 3287,-703.5 4002.5,-703.5 4002.5,-641.5 3287,-641.5"/>
+<text xml:space="preserve" text-anchor="start" x="3290" y="-688.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="3314.75" y="-688.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3463.25" y="-688.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3471.5" y="-688.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle</text>
+<text xml:space="preserve" text-anchor="start" x="3290" y="-674.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="3323" y="-674.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3339.5" y="-674.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="3430.25" y="-674.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3438.5" y="-674.2" font-family="monospace" font-size="14.00" fill="#0000cd">154</text>
+<text xml:space="preserve" text-anchor="start" x="3290" y="-660.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="3323" y="-660.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="3290" y="-646.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="3323" y="-646.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3339.5" y="-646.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- cutscene_bx02_bx557_REvt_bx557_End_Skip&#45;&gt;cutscene_bx02_bx557_REvt_bx557_End_Skip__block_0 -->
+<g id="edge11" class="edge">
+<title>cutscene_bx02_bx557_REvt_bx557_End_Skip&#45;&gt;cutscene_bx02_bx557_REvt_bx557_End_Skip__block_0:n</title>
+<path fill="none" stroke="black" d="M3644.75,-766.29C3644.75,-759.04 3644.75,-750.2 3644.75,-741.4"/>
+<polygon fill="black" stroke="black" points="3648.25,-741.51 3644.75,-731.51 3641.25,-741.51 3648.25,-741.51"/>
+</g>
+<!-- cutscene_bx02_bx557_REvt_bx557_End_Skip__block_0&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_154 -->
+<g id="edge12" class="edge">
+<title>cutscene_bx02_bx557_REvt_bx557_End_Skip__block_0:e&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_154:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M4011.15,-683.75C4098.69,-683.75 4017.56,-579.14 4010.27,-489.93"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="4009.85,-480.18 4014.77,-489.98 4010.46,-482.72 4010.77,-490.15 4010.28,-490.17 4009.78,-490.19 4009.46,-482.76 4005.78,-490.36 4009.85,-480.18"/>
+</g>
+<!-- cutscene_bx02_bx557_REvt_bx557_End -->
+<g id="node16" class="node">
+<title>cutscene_bx02_bx557_REvt_bx557_End</title>
+<polygon fill="#ffd4d4" stroke="none" points="4391.38,-772.75 4391.38,-795.25 4752.12,-795.25 4752.12,-772.75 4391.38,-772.75"/>
+<polygon fill="none" stroke="black" points="4391.38,-772.75 4391.38,-795.25 4752.12,-795.25 4752.12,-772.75 4391.38,-772.75"/>
+<text xml:space="preserve" text-anchor="start" x="4394.38" y="-779.95" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="4460.38" y="-779.95" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4468.62" y="-779.95" font-family="monospace" font-size="14.00" fill="#6a0080">cutscene_bx02_bx557_REvt_bx557_End</text>
+</g>
+<!-- cutscene_bx02_bx557_REvt_bx557_End__block_0 -->
+<g id="node17" class="node">
+<title>cutscene_bx02_bx557_REvt_bx557_End__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="4234.62,-641.5 4234.62,-726 4908.88,-726 4908.88,-641.5 4234.62,-641.5"/>
+<polygon fill="none" stroke="black" points="4234.62,-703.5 4234.62,-726 4908.88,-726 4908.88,-703.5 4234.62,-703.5"/>
+<text xml:space="preserve" text-anchor="start" x="4237.62" y="-709.7" font-family="monospace" font-size="14.00">bx_02_Car_Course_Before_DarkCube_Battle_C::cutscene_bx02_bx557_REvt_bx557_End @ 0</text>
+<polygon fill="none" stroke="black" points="4234.62,-641.5 4234.62,-703.5 4908.88,-703.5 4908.88,-641.5 4234.62,-641.5"/>
+<text xml:space="preserve" text-anchor="start" x="4237.62" y="-688.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="4262.38" y="-688.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4410.88" y="-688.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4419.12" y="-688.2" font-family="monospace" font-size="14.00" fill="#6a0080">ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle</text>
+<text xml:space="preserve" text-anchor="start" x="4237.62" y="-674.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">13: </text>
+<text xml:space="preserve" text-anchor="start" x="4270.62" y="-674.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4287.12" y="-674.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="4377.88" y="-674.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4386.12" y="-674.2" font-family="monospace" font-size="14.00" fill="#0000cd">149</text>
+<text xml:space="preserve" text-anchor="start" x="4237.62" y="-660.2" font-family="monospace" font-size="14.00" fill="#555555">19: </text>
+<text xml:space="preserve" text-anchor="start" x="4270.62" y="-660.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="4237.62" y="-646.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">20: </text>
+<text xml:space="preserve" text-anchor="start" x="4270.62" y="-646.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4287.12" y="-646.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- cutscene_bx02_bx557_REvt_bx557_End&#45;&gt;cutscene_bx02_bx557_REvt_bx557_End__block_0 -->
+<g id="edge13" class="edge">
+<title>cutscene_bx02_bx557_REvt_bx557_End&#45;&gt;cutscene_bx02_bx557_REvt_bx557_End__block_0:n</title>
+<path fill="none" stroke="black" d="M4571.75,-766.29C4571.75,-759.04 4571.75,-750.2 4571.75,-741.4"/>
+<polygon fill="black" stroke="black" points="4575.25,-741.51 4571.75,-731.51 4568.25,-741.51 4575.25,-741.51"/>
+</g>
+<!-- cutscene_bx02_bx557_REvt_bx557_End__block_0&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_149 -->
+<g id="edge14" class="edge">
+<title>cutscene_bx02_bx557_REvt_bx557_End__block_0:e&#45;&gt;ExecuteUbergraph_bx_02_Car_Course_Before_DarkCube_Battle__block_149:n</title>
+<path fill="none" stroke="gray" stroke-width="2" stroke-dasharray="1,5" d="M4917.55,-683.75C5005.09,-683.75 4923.6,-579.14 4916.27,-489.93"/>
+<polygon fill="gray" stroke="gray" stroke-width="2" points="4915.85,-480.18 4920.77,-489.98 4916.46,-482.72 4916.78,-490.15 4916.28,-490.17 4915.78,-490.19 4915.46,-482.76 4911.78,-490.36 4915.85,-480.18"/>
+</g>
+</g>
+</svg>
+</div>
+    </div>
+  </div>
 
-      function zoom(amount, pointX, pointY) {
-        const currentScale = +map.style.scale;
-        const newScale = currentScale * amount;
+  <div id="minimap">
+    <div id="minimap-content">
+      <canvas id="minimap-canvas"></canvas>
+      <div id="minimap-viewport"></div>
+    </div>
+  </div>
 
-        const currentScrollX = window.scrollX;
-        const currentScrollY = window.scrollY;
+  <div id="hint">
+    <kbd>Wheel</kbd> zoom &nbsp;
+    <kbd>Drag</kbd> pan
+  </div>
 
-        map.style.scale = newScale;
-        const bounds = map.getBoundingClientRect();
-        container.style.width = bounds.width + 'px';
-        container.style.height = bounds.height + 'px';
+  <div id="drop-overlay">Drop SVG file here</div>
 
-        window.scrollTo(pointX * amount - (pointX - currentScrollX), pointY * amount - (pointY - currentScrollY));
-        update();
-      }
-      function scroll(dx, dy) {
-        window.scrollBy(dx, dy);
-        update();
-      }
-      function handleMove(e) {
-        if (!drag) return;
-        if (drag === minimapContainer) {
-          const bounds = minimap.getBoundingClientRect();
+  <script>
+    const fileInput = document.getElementById('file-input');
+    const viewport = document.getElementById('viewport');
+    const svgWrapper = document.getElementById('svg-wrapper');
+    const svgContainer = document.getElementById('svg-container');
+    const zoomLevelEl = document.getElementById('zoom-level');
+    const searchInput = document.getElementById('search-input');
+    const searchInfo = document.getElementById('search-info');
+    const emptyState = document.getElementById('empty-state');
+    const dropOverlay = document.getElementById('drop-overlay');
+    const darkModeToggle = document.getElementById('dark-mode-toggle');
+    const minimapToggle = document.getElementById('minimap-toggle');
+    const minimap = document.getElementById('minimap');
+    const minimapContent = document.getElementById('minimap-content');
+    const minimapCanvas = document.getElementById('minimap-canvas');
+    const minimapViewport = document.getElementById('minimap-viewport');
 
-          scroll(
-            document.documentElement.scrollWidth * e.movementX / bounds.width,
-            document.documentElement.scrollHeight * e.movementY / bounds.height
-          );
-        } else {
-          scroll(-e.movementX, -e.movementY);
+    let scale = 1;
+    let darkMode = false;
+    let minimapVisible = true;
+    let svgElement = null;
+    let svgWidth = 0;
+    let svgHeight = 0;
+    let minimapImageData = null; // Cached rasterized SVG
+
+    // Panning state
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let scrollStartX = 0;
+    let scrollStartY = 0;
+
+    // Minimap drag state
+    let isMinimapDragging = false;
+    let minimapDragOffsetX = 0;
+    let minimapDragOffsetY = 0;
+
+    // Search state
+    let searchMatches = [];
+    let currentMatchIndex = -1;
+    let highlightGroup = null;
+    let searchDebounceTimer = null;
+
+    const MIN_SCALE = 0.1;
+    const MAX_SCALE = 5;
+
+    // === File Loading ===
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) loadSvgFile(file);
+    });
+
+    // Examples dropdowns (toolbar and empty state)
+    const exampleFiles = [
+      'vm_flow.svg',
+      'PLS_Base.svg',
+      'dominion.svg',
+      'blueprint.svg'
+    ];
+
+    document.querySelectorAll('.examples-select').forEach(select => {
+      // Populate options
+      exampleFiles.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file;
+        option.textContent = file;
+        select.appendChild(option);
+      });
+
+      // Handle selection
+      select.addEventListener('change', async (e) => {
+        const file = e.target.value;
+        if (!file) return;
+
+        try {
+          const response = await fetch(`examples/${file}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${file}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
         }
-        e.preventDefault();
+
+        // Reset dropdown to placeholder
+        select.value = '';
+      });
+    });
+
+    // Empty state file button
+    document.getElementById('empty-file-btn').addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    // Drag and drop
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.add('active');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      if (e.target === dropOverlay) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.remove('active');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.svg')) {
+        loadSvgFile(file);
+      }
+    });
+
+    function loadSvgFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const svgText = e.target.result;
+        loadSvgContent(svgText);
+        document.title = `SVG Viewer - ${file.name}`;
+      };
+      reader.readAsText(file);
+    }
+
+    function loadSvgContent(svgText) {
+      // Clear previous content
+      svgContainer.innerHTML = svgText;
+      svgElement = svgContainer.querySelector('svg');
+
+      if (!svgElement) {
+        alert('Invalid SVG file');
+        return;
       }
 
-      let debounceTimeout = null;
-      function update() {
-        minimapView.style.top = document.documentElement.scrollTop / document.documentElement.scrollHeight * 100 + '%';
-        minimapView.style.left = document.documentElement.scrollLeft / document.documentElement.scrollWidth * 100 + '%';
-        minimapView.style.width = document.documentElement.clientWidth / document.documentElement.scrollWidth * 100 + '%';
-        minimapView.style.height = document.documentElement.clientHeight / document.documentElement.scrollHeight * 100 + '%';
+      // Show viewport, hide empty state
+      emptyState.classList.add('hidden');
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
       }
 
-      let drag = false;
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
 
-      function init() {
-        setScale(1);
-        const bounds = map.getBoundingClientRect();
-        const scaleW = document.documentElement.clientWidth / bounds.width;
-        const scaleH = document.documentElement.clientHeight / bounds.height;
-        const maxAspectRatio = 0.2;
-        const scale = Math.min(Math.max(maxAspectRatio, scaleW / scaleH) * scaleH, Math.max(maxAspectRatio, scaleH / scaleW) * scaleW);
-        setScale(Math.min(scale, 1));
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap
+      initMinimap(svgText);
+    }
+
+    // === Zoom Controls ===
+
+    document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.25));
+    document.getElementById('zoom-out').addEventListener('click', () => zoomBy(0.8));
+    document.getElementById('zoom-reset').addEventListener('click', () => setZoom(1));
+
+    // === Dark Mode Toggle ===
+
+    darkModeToggle.addEventListener('click', toggleDarkMode);
+
+    function toggleDarkMode() {
+      darkMode = !darkMode;
+      svgContainer.classList.toggle('dark-mode', darkMode);
+      minimapContent.classList.toggle('dark-mode', darkMode);
+      darkModeToggle.classList.toggle('active', darkMode);
+    }
+
+    // === Minimap ===
+
+    minimapToggle.addEventListener('click', toggleMinimap);
+
+    function toggleMinimap() {
+      minimapVisible = !minimapVisible;
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+    }
+
+    function initMinimap(svgText) {
+      // Calculate minimap size to fit within bounds while preserving aspect ratio
+      const maxWidth = 400;
+      const maxHeight = 600;
+      const aspectRatio = svgWidth / svgHeight;
+
+      let mmWidth, mmHeight;
+      if (aspectRatio > maxWidth / maxHeight) {
+        // Width constrained
+        mmWidth = maxWidth;
+        mmHeight = maxWidth / aspectRatio;
+      } else {
+        // Height constrained
+        mmHeight = maxHeight;
+        mmWidth = maxHeight * aspectRatio;
       }
 
-      window.addEventListener('wheel', e => {
+      minimap.style.width = mmWidth + 'px';
+      minimap.style.height = mmHeight + 'px';
+
+      // Set canvas size (use higher resolution for retina displays)
+      const dpr = window.devicePixelRatio || 1;
+      minimapCanvas.width = mmWidth * dpr;
+      minimapCanvas.height = mmHeight * dpr;
+      minimapCanvas.style.width = mmWidth + 'px';
+      minimapCanvas.style.height = mmHeight + 'px';
+
+      // Show minimap
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+
+      // Sync dark mode
+      minimapContent.classList.toggle('dark-mode', darkMode);
+
+      // Rasterize SVG to canvas
+      rasterizeSvgToCanvas(svgText, mmWidth, mmHeight, dpr);
+
+      // Update viewport indicator
+      updateMinimapViewport();
+    }
+
+    function rasterizeSvgToCanvas(svgText, width, height, dpr) {
+      const img = new Image();
+      const blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+
+      img.onload = () => {
+        const ctx = minimapCanvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+
+        // Cache the image data for potential re-use
+        minimapImageData = ctx.getImageData(0, 0, minimapCanvas.width, minimapCanvas.height);
+      };
+
+      img.onerror = () => {
+        console.error('Failed to rasterize SVG for minimap');
+        URL.revokeObjectURL(url);
+      };
+
+      img.src = url;
+    }
+
+    function updateMinimapViewport() {
+      if (!svgElement || !minimapVisible) return;
+
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+
+      // Padding in the main viewport
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Current scroll position relative to SVG (not padding)
+      const scrollX = viewport.scrollLeft - padX;
+      const scrollY = viewport.scrollTop - padY;
+
+      // Visible area in SVG coordinates
+      const visibleX = scrollX / scale;
+      const visibleY = scrollY / scale;
+      const visibleW = vpRect.width / scale;
+      const visibleH = vpRect.height / scale;
+
+      // Scale to minimap coordinates
+      const mmScaleX = mmRect.width / svgWidth;
+      const mmScaleY = mmRect.height / svgHeight;
+
+      // Position and size the viewport indicator (no clamping - allow overflow)
+      const left = visibleX * mmScaleX;
+      const top = visibleY * mmScaleY;
+      const width = visibleW * mmScaleX;
+      const height = visibleH * mmScaleY;
+
+      minimapViewport.style.left = left + 'px';
+      minimapViewport.style.top = top + 'px';
+      minimapViewport.style.width = Math.max(10, width) + 'px';
+      minimapViewport.style.height = Math.max(10, height) + 'px';
+    }
+
+    // Update minimap on scroll
+    viewport.addEventListener('scroll', updateMinimapViewport);
+
+    // Minimap click/drag to navigate
+    minimapContent.addEventListener('mousedown', (e) => {
+      isMinimapDragging = true;
+
+      // Calculate offset so dragging feels natural
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = minimapViewport.getBoundingClientRect();
+
+      // Check if clicking inside the viewport indicator
+      const inViewport = e.clientX >= vpRect.left && e.clientX <= vpRect.right &&
+        e.clientY >= vpRect.top && e.clientY <= vpRect.bottom;
+
+      if (inViewport) {
+        // Drag from current position
+        minimapDragOffsetX = e.clientX - vpRect.left;
+        minimapDragOffsetY = e.clientY - vpRect.top;
+      } else {
+        // Click outside - center viewport on click point, then allow drag
+        const vpW = vpRect.width;
+        const vpH = vpRect.height;
+        minimapDragOffsetX = vpW / 2;
+        minimapDragOffsetY = vpH / 2;
+        navigateMinimapTo(e, true);
+      }
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isMinimapDragging) return;
+      navigateMinimapTo(e, true);
+    });
+
+    document.addEventListener('mouseup', () => {
+      isMinimapDragging = false;
+    });
+
+    function navigateMinimapTo(e, useDragOffset = false) {
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Mouse position in minimap
+      let mmX = e.clientX - mmRect.left;
+      let mmY = e.clientY - mmRect.top;
+
+      if (useDragOffset) {
+        // Adjust for drag offset (top-left of viewport indicator)
+        mmX -= minimapDragOffsetX;
+        mmY -= minimapDragOffsetY;
+      } else {
+        // Click centers the viewport on that point
+        const vpW = (vpRect.width / scale) * (mmRect.width / svgWidth);
+        const vpH = (vpRect.height / scale) * (mmRect.height / svgHeight);
+        mmX -= vpW / 2;
+        mmY -= vpH / 2;
+      }
+
+      // Convert to SVG coordinates
+      const svgX = (mmX / mmRect.width) * svgWidth;
+      const svgY = (mmY / mmRect.height) * svgHeight;
+
+      // Scroll to position (accounting for padding)
+      viewport.scrollLeft = svgX * scale + padX;
+      viewport.scrollTop = svgY * scale + padY;
+    }
+
+    function zoomBy(factor, centerX, centerY) {
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor));
+      if (newScale === scale) return;
+
+      const rect = viewport.getBoundingClientRect();
+      const oldPadX = rect.width;
+      const oldPadY = rect.height;
+
+      // If center point provided, zoom towards it
+      if (centerX !== undefined && centerY !== undefined) {
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates (accounting for padding)
+        const svgX = (scrollX + centerX - rect.left - oldPadX) / scale;
+        const svgY = (scrollY + centerY - rect.top - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        // New padding after zoom (viewport size doesn't change)
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        // Scroll to keep the point under cursor
+        viewport.scrollLeft = svgX * scale + newPadX - (centerX - rect.left);
+        viewport.scrollTop = svgY * scale + newPadY - (centerY - rect.top);
+      } else {
+        // Zoom towards center of viewport
+        const viewCenterX = rect.width / 2;
+        const viewCenterY = rect.height / 2;
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates
+        const svgX = (scrollX + viewCenterX - oldPadX) / scale;
+        const svgY = (scrollY + viewCenterY - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        viewport.scrollLeft = svgX * scale + newPadX - viewCenterX;
+        viewport.scrollTop = svgY * scale + newPadY - viewCenterY;
+      }
+    }
+
+    function setZoom(newScale) {
+      scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+      updateZoom();
+    }
+
+    function centerSvg() {
+      const rect = viewport.getBoundingClientRect();
+      const padX = rect.width;
+      const padY = rect.height;
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      // Scroll so SVG is centered in viewport
+      viewport.scrollLeft = padX + (scaledW - rect.width) / 2;
+      viewport.scrollTop = padY + (scaledH - rect.height) / 2;
+    }
+
+    function updateZoom() {
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportW = viewportRect.width;
+      const viewportH = viewportRect.height;
+
+      // Padding allows the SVG to be scrolled so it can be centered (or anywhere)
+      const padX = viewportW;
+      const padY = viewportH;
+
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      svgContainer.style.transform = `scale(${scale})`;
+      svgContainer.style.width = scaledW + 'px';
+      svgContainer.style.height = scaledH + 'px';
+
+      // Wrapper includes padding on all sides
+      svgWrapper.style.paddingLeft = padX + 'px';
+      svgWrapper.style.paddingTop = padY + 'px';
+      svgWrapper.style.paddingRight = padX + 'px';
+      svgWrapper.style.paddingBottom = padY + 'px';
+
+      zoomLevelEl.textContent = Math.round(scale * 100) + '%';
+
+      // Update minimap viewport indicator
+      updateMinimapViewport();
+    }
+
+    // Mouse wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      zoomBy(factor, e.clientX, e.clientY);
+    }, {passive: false});
+
+    // === Panning ===
+
+    function isTextElement(el) {
+      while (el && el !== viewport) {
+        if (el.tagName === 'text' || el.tagName === 'tspan') return true;
+        el = el.parentElement;
+      }
+      return false;
+    }
+
+    viewport.addEventListener('mousedown', (e) => {
+      // Middle mouse always pans
+      if (e.button === 1) {
         e.preventDefault();
-        zoom(e.deltaY > 0 ? (1 / 1.1) : 1.1, e.pageX, e.pageY);
-      }, {passive: false});
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+        return;
+      }
 
-      window.addEventListener('mousedown', e => {
-        if (e.target && e.target.tagName === 'text') return;
-        if (!(e.buttons & 1)) return;
-        if (drag) return;
-        drag = e.target || true;
-      }, {passive: true});
-
-      window.addEventListener('mouseup', e => {
-        if (e.buttons & 1) return;
-        drag = false;
-      }, {passive: true});
-
-      window.addEventListener('mousemove', e => {
-        handleMove(e);
-      }, {passive: false});
-
-      window.addEventListener('scroll', () => {
-        update();
-      }, {passive: true});
-
-      minimapContainer.addEventListener('mousedown', e => {
+      // Left click: pan if not on text, otherwise let browser handle selection
+      if (e.button === 0 && !isTextElement(e.target)) {
         e.preventDefault();
-      }, {passive: false});
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+      }
+    });
 
-      window.addEventListener('hashchange', () => {
-        load();
-      }, {passive: true});
+    document.addEventListener('mousemove', (e) => {
+      if (!isPanning) return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      viewport.scrollLeft = scrollStartX - dx;
+      viewport.scrollTop = scrollStartY - dy;
+    });
 
-      init();
-    </script>
-  </body>
+    document.addEventListener('mouseup', () => {
+      isPanning = false;
+      viewport.classList.remove('panning');
+    });
+
+    // === Touch Support (pinch zoom only, panning is native scroll) ===
+
+    let touchStartDist = 0;
+    let touchStartScale = 1;
+    let lastTouchCenter = null;
+
+    viewport.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        touchStartDist = getTouchDistance(e.touches);
+        touchStartScale = scale;
+        lastTouchCenter = getTouchCenter(e.touches);
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDistance(e.touches);
+        const center = getTouchCenter(e.touches);
+        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, touchStartScale * (dist / touchStartDist)));
+
+        if (newScale !== scale) {
+          // Zoom towards pinch center
+          const rect = viewport.getBoundingClientRect();
+          const padX = rect.width;
+          const padY = rect.height;
+
+          const svgX = (viewport.scrollLeft + center.x - rect.left - padX) / scale;
+          const svgY = (viewport.scrollTop + center.y - rect.top - padY) / scale;
+
+          scale = newScale;
+          updateZoom();
+
+          viewport.scrollLeft = svgX * scale + padX - (center.x - rect.left);
+          viewport.scrollTop = svgY * scale + padY - (center.y - rect.top);
+        }
+
+        lastTouchCenter = center;
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) {
+        touchStartDist = 0;
+        lastTouchCenter = null;
+      }
+    });
+
+    function getTouchDistance(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getTouchCenter(touches) {
+      return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2
+      };
+    }
+
+    // === Search ===
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(performSearch, 150);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          navigateSearch(-1);
+        } else {
+          navigateSearch(1);
+        }
+      } else if (e.key === 'Escape') {
+        searchInput.blur();
+        clearSearch();
+      }
+    });
+
+    document.getElementById('search-prev').addEventListener('click', () => navigateSearch(-1));
+    document.getElementById('search-next').addEventListener('click', () => navigateSearch(1));
+
+    // CSS Custom Highlight API highlights
+    let searchResultsHighlight = null;
+    let searchCurrentHighlight = null;
+
+    // Initialize highlights if API is available
+    if (CSS.highlights) {
+      searchResultsHighlight = new Highlight();
+      searchCurrentHighlight = new Highlight();
+      CSS.highlights.set('search-results', searchResultsHighlight);
+      CSS.highlights.set('search-current', searchCurrentHighlight);
+    }
+
+    function performSearch() {
+      if (!svgElement) return;
+
+      const query = searchInput.value.trim();
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+
+      if (!query) {
+        updateSearchInfo();
+        searchInput.classList.remove('invalid');
+        return;
+      }
+
+      // Try to compile regex
+      let regex;
+      try {
+        regex = new RegExp(query, 'gi');
+        searchInput.classList.remove('invalid');
+      } catch (e) {
+        // Invalid regex
+        searchInput.classList.add('invalid');
+        updateSearchInfo();
+        return;
+      }
+
+      // Find all text elements containing matches
+      const textElements = svgElement.querySelectorAll('text');
+      textElements.forEach((textEl) => {
+        const content = textEl.textContent || '';
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        let match;
+        regex.lastIndex = 0; // Reset regex state
+        while ((match = regex.exec(content)) !== null) {
+          // Create range for this match
+          try {
+            const range = new Range();
+            range.setStart(textNode, match.index);
+            range.setEnd(textNode, match.index + match[0].length);
+
+            searchMatches.push({
+              element: textEl,
+              start: match.index,
+              length: match[0].length,
+              text: match[0],
+              range: range
+            });
+          } catch (e) {
+            // Range creation failed, skip this match
+          }
+
+          // Prevent infinite loop on zero-length matches
+          if (match[0].length === 0) regex.lastIndex++;
+        }
+      });
+
+      // Add all ranges to the highlight (if API available)
+      if (searchResultsHighlight) {
+        searchMatches.forEach(match => {
+          searchResultsHighlight.add(match.range);
+        });
+      } else {
+        // Fallback: use SVG rects
+        searchMatches.forEach((match, index) => {
+          const rect = createHighlightRect(match);
+          if (rect) {
+            rect.dataset.index = index;
+            highlightGroup.appendChild(rect);
+          }
+        });
+      }
+
+      updateSearchInfo();
+
+      // Navigate to first match (don't select - user is still typing)
+      if (searchMatches.length > 0) {
+        currentMatchIndex = 0;
+        highlightCurrentMatch();
+        scrollToCurrentMatch(false);
+      }
+    }
+
+    function createHighlightRect(match) {
+      try {
+        const textEl = match.element;
+        const fullBbox = textEl.getBBox();
+        const content = textEl.textContent || '';
+
+        // Calculate approximate character width
+        const charWidth = fullBbox.width / content.length;
+
+        // Calculate highlight bounds for the matched portion
+        const x = fullBbox.x + (match.start * charWidth);
+        const width = match.length * charWidth;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x - 1);
+        rect.setAttribute('y', fullBbox.y - 2);
+        rect.setAttribute('width', width + 2);
+        rect.setAttribute('height', fullBbox.height + 4);
+        rect.classList.add('search-highlight');
+
+        // Apply transforms from parent elements
+        let transform = '';
+        let el = textEl;
+        while (el && el !== svgElement) {
+          const t = el.getAttribute('transform');
+          if (t) transform = t + ' ' + transform;
+          el = el.parentElement;
+        }
+        if (transform) {
+          rect.setAttribute('transform', transform);
+        }
+
+        return rect;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function clearHighlights() {
+      // Clear CSS Custom Highlights
+      if (searchResultsHighlight) {
+        searchResultsHighlight.clear();
+      }
+      if (searchCurrentHighlight) {
+        searchCurrentHighlight.clear();
+      }
+      // Clear SVG rect fallback
+      if (highlightGroup) {
+        highlightGroup.innerHTML = '';
+      }
+    }
+
+    function clearSearch() {
+      searchInput.value = '';
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+      updateSearchInfo();
+    }
+
+    function navigateSearch(direction) {
+      if (searchMatches.length === 0) return;
+
+      currentMatchIndex += direction;
+      if (currentMatchIndex >= searchMatches.length) {
+        currentMatchIndex = 0;
+      } else if (currentMatchIndex < 0) {
+        currentMatchIndex = searchMatches.length - 1;
+      }
+
+      highlightCurrentMatch();
+      scrollToCurrentMatch(true); // Select text on explicit navigation
+    }
+
+    function highlightCurrentMatch() {
+      if (searchCurrentHighlight) {
+        // Update current highlight
+        searchCurrentHighlight.clear();
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchMatches.length) {
+          searchCurrentHighlight.add(searchMatches[currentMatchIndex].range);
+        }
+      } else {
+        // Fallback: toggle class on SVG rects
+        const rects = highlightGroup.querySelectorAll('rect');
+        rects.forEach((rect, i) => {
+          rect.classList.toggle('current', i === currentMatchIndex);
+        });
+      }
+      updateSearchInfo();
+    }
+
+    function scrollToCurrentMatch(shouldSelect = false) {
+      if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
+
+      const match = searchMatches[currentMatchIndex];
+      const textEl = match.element;
+      try {
+        const bbox = textEl.getBBox();
+
+        // Get cumulative transform
+        let el = textEl;
+        let matrix = svgElement.createSVGMatrix();
+        const transforms = [];
+        while (el && el !== svgElement) {
+          const t = el.transform?.baseVal?.consolidate()?.matrix;
+          if (t) transforms.unshift(t);
+          el = el.parentElement;
+        }
+        transforms.forEach(t => {
+          matrix = matrix.multiply(t);
+        });
+
+        // Transform the center point
+        const centerX = bbox.x + bbox.width / 2;
+        const centerY = bbox.y + bbox.height / 2;
+        const point = svgElement.createSVGPoint();
+        point.x = centerX;
+        point.y = centerY;
+        const transformed = point.matrixTransform(matrix);
+
+        // Convert to screen coordinates and scroll (accounting for padding)
+        const viewportRect = viewport.getBoundingClientRect();
+        const padX = viewportRect.width;
+        const padY = viewportRect.height;
+
+        const screenX = transformed.x * scale + padX;
+        const screenY = transformed.y * scale + padY;
+
+        const targetScrollX = screenX - viewportRect.width / 2;
+        const targetScrollY = screenY - viewportRect.height / 2;
+
+        viewport.scrollTo({
+          left: targetScrollX,
+          top: targetScrollY,
+          behavior: 'smooth'
+        });
+
+        // Only select text on explicit navigation (Enter/buttons), not while typing
+        if (shouldSelect) {
+          selectMatchedText(match);
+        }
+      } catch (e) {
+        // Fallback: try to scroll the element into view
+        textEl.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});
+      }
+    }
+
+    function selectMatchedText(match) {
+      try {
+        const textEl = match.element;
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.setStart(textNode, match.start);
+        range.setEnd(textNode, match.start + match.length);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (e) {
+        // Selection not supported or failed
+      }
+    }
+
+    function updateSearchInfo() {
+      if (searchMatches.length === 0) {
+        searchInfo.textContent = searchInput.value ? 'No matches' : '0 / 0';
+      } else {
+        searchInfo.textContent = `${currentMatchIndex + 1} / ${searchMatches.length}`;
+      }
+    }
+
+    // === Keyboard Shortcuts ===
+
+    document.addEventListener('keydown', (e) => {
+      // Don't handle shortcuts if typing in search
+      if (document.activeElement === searchInput) return;
+
+      // Zoom shortcuts
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomBy(1.25);
+      } else if (e.key === '-') {
+        e.preventDefault();
+        zoomBy(0.8);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setZoom(1);
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        toggleDarkMode();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        toggleMinimap();
+      }
+    });
+
+    // === Embedded SVG Support ===
+
+    function initializeEmbeddedSvg() {
+      // Check if an SVG is already present in the container (embedded at build time)
+      svgElement = svgContainer.querySelector('svg');
+      if (!svgElement) return false;
+
+      // Hide file selection UI since this is a self-contained viewer
+      const fileGroup = document.querySelector('#toolbar .group:first-child');
+      if (fileGroup) fileGroup.style.display = 'none';
+      emptyState.style.display = 'none';
+
+      // Show viewport
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap - serialize SVG for rasterization
+      const svgText = new XMLSerializer().serializeToString(svgElement);
+      initMinimap(svgText);
+
+      return true;
+    }
+
+    // Check for embedded SVG on startup
+    const hasEmbeddedSvg = initializeEmbeddedSvg();
+
+    // === URL Hash Loading ===
+
+    async function loadFromHash() {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return;
+
+      const params = new URLSearchParams(hash);
+
+      // Check for url= parameter
+      const url = params.get('url');
+      if (url) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            // Extract filename from URL for title
+            const filename = url.split('/').pop() || 'remote';
+            document.title = `SVG Viewer - ${filename}`;
+          } else {
+            console.error('Failed to load SVG from URL:', response.status);
+          }
+        } catch (err) {
+          console.error('Failed to load SVG from URL:', err);
+        }
+        return;
+      }
+
+      // Check for example= parameter
+      const example = params.get('example');
+      if (example && exampleFiles.includes(example)) {
+        try {
+          const response = await fetch(`examples/${example}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${example}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+      }
+    }
+
+    // Only load from hash if no embedded SVG
+    if (!hasEmbeddedSvg) {
+      loadFromHash();
+      window.addEventListener('hashchange', loadFromHash);
+    }
+
+  </script>
+</body>
+
 </html>
-
