@@ -1,0 +1,2264 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVG Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #toolbar {
+      background: #2d2d2d;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #444;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #toolbar .group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #toolbar label {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #toolbar button {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    #toolbar button:hover {
+      background: #555;
+    }
+
+    #toolbar button:active {
+      background: #666;
+    }
+
+    #file-input {
+      font-size: 13px;
+    }
+
+    .examples-select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .examples-select:hover {
+      background: #555;
+    }
+
+    #zoom-level {
+      min-width: 50px;
+      text-align: center;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #search-input {
+      background: #333;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      width: 200px;
+    }
+
+    #search-input:focus {
+      outline: none;
+      border-color: #0078d4;
+    }
+
+    #search-input.invalid {
+      border-color: #d32f2f;
+      background: #3d2020;
+    }
+
+    #search-info {
+      font-size: 13px;
+      color: #aaa;
+      min-width: 60px;
+    }
+
+    #viewport {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      touch-action: pan-x pan-y;
+      cursor: grab;
+    }
+
+    #viewport.panning {
+      cursor: grabbing;
+    }
+
+    #svg-container text {
+      cursor: text;
+    }
+
+    #svg-wrapper {
+      display: inline-block;
+      /* Padding allows SVG to be scrolled/centered even when zoomed out */
+    }
+
+    #svg-container {
+      transform-origin: 0 0;
+      display: inline-block;
+    }
+
+    #svg-container svg {
+      display: block;
+    }
+
+    /* Dark mode for SVG - invert with reduced contrast */
+    #svg-container.dark-mode svg {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    /* Toggle button active state */
+    #toolbar button.active {
+      background: #0078d4;
+      border-color: #0078d4;
+    }
+
+    #toolbar button.active:hover {
+      background: #1084d8;
+    }
+
+    /* Search highlight styling - SVG rect fallback */
+    .search-highlight {
+      fill: #22ee22;
+      stroke: #00aa00;
+      stroke-width: 1;
+      pointer-events: none;
+    }
+
+    .search-highlight.current {
+      fill: #ff22ff;
+      stroke: #cc00cc;
+      stroke-width: 2;
+    }
+
+    /* CSS Custom Highlight API styling */
+    ::highlight(search-results) {
+      background-color: #22ee22;
+      color: black;
+    }
+
+    ::highlight(search-current) {
+      background-color: #ff22ff;
+      color: black;
+    }
+
+    #hint {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    #hint kbd {
+      background: #444;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: inherit;
+      margin: 0 2px;
+    }
+
+    /* Hide hint on mobile/touch devices */
+    @media (hover: none),
+    (max-width: 768px) {
+      #hint {
+        display: none;
+      }
+    }
+
+    /* Minimap */
+    #minimap {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      width: 400px;
+      max-height: 600px;
+      background: #2d2d2d;
+      border: 1px solid #444;
+      border-radius: 6px;
+      overflow: hidden;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    #minimap.visible {
+      display: block;
+    }
+
+    #minimap-content {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #minimap-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #minimap-viewport {
+      position: absolute;
+      border: 2px solid #0078d4;
+      background: rgba(0, 120, 212, 0.15);
+      cursor: move;
+      pointer-events: auto;
+    }
+
+    #minimap-content.dark-mode #minimap-canvas {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    #drop-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 120, 212, 0.2);
+      border: 3px dashed #0078d4;
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #0078d4;
+    }
+
+    #drop-overlay.active {
+      display: flex;
+    }
+
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      gap: 16px;
+    }
+
+    #empty-state.hidden {
+      display: none;
+    }
+
+    #empty-state .empty-title {
+      font-size: 32px;
+      font-weight: 600;
+      color: #ccc;
+    }
+
+    #empty-state .empty-subtitle {
+      font-size: 18px;
+      color: #666;
+    }
+
+    #empty-state .empty-divider {
+      font-size: 14px;
+      color: #555;
+      margin: 8px 0;
+    }
+
+    #empty-state .empty-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    #empty-state button,
+    #empty-state select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #empty-state button:hover,
+    #empty-state select:hover {
+      background: #555;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="toolbar">
+    <div class="group">
+      <input type="file" id="file-input" accept=".svg">
+      <select class="examples-select" title="Load example SVG">
+        <option value="">Examples...</option>
+      </select>
+    </div>
+    <div class="group">
+      <button id="zoom-out" title="Zoom out (-)">-</button>
+      <span id="zoom-level">100%</span>
+      <button id="zoom-in" title="Zoom in (+)">+</button>
+      <button id="zoom-reset" title="Reset zoom (0)">Reset</button>
+    </div>
+    <div class="group">
+      <button id="dark-mode-toggle" title="Toggle dark mode for SVG (D)">Dark Mode</button>
+      <button id="minimap-toggle" title="Toggle minimap (M)">Minimap</button>
+    </div>
+    <div class="group">
+      <input type="search" id="search-input" placeholder="Regex search...">
+      <button id="search-prev" title="Previous match (Shift+Enter)">Prev</button>
+      <span id="search-info">0 / 0</span>
+      <button id="search-next" title="Next match (Enter)">Next</button>
+    </div>
+  </div>
+
+  <div id="empty-state">
+    <div class="empty-title">SVG Viewer</div>
+    <div class="empty-subtitle">Drop an SVG file here</div>
+    <div class="empty-divider">or</div>
+    <div class="empty-actions">
+      <button id="empty-file-btn">Choose File</button>
+      <select class="examples-select">
+        <option value="">Load Example...</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="viewport" style="display: none;">
+    <div id="svg-wrapper">
+      <div id="svg-container"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 14.1.1 (20251213.1925)
+ -->
+<!-- Pages: 1 -->
+<svg width="3712pt" height="1237pt"
+ viewBox="0.00 0.00 3712.00 1237.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 1232.5)">
+<polygon fill="white" stroke="none" points="-4,4 -4,-1232.5 3707.89,-1232.5 3707.89,4 -4,4"/>
+<!-- Func_Modulo_C -->
+<g id="node1" class="node">
+<title>Func_Modulo_C</title>
+<polygon fill="#d4ffd4" stroke="none" points="8,-1176 8,-1224 542,-1224 542,-1176 8,-1176"/>
+<polygon fill="none" stroke="black" points="8,-1176 8,-1224 542,-1224 542,-1176 8,-1176"/>
+<text xml:space="preserve" text-anchor="start" x="11" y="-1208.7" font-family="monospace" font-size="14.00" fill="#800080">ClassExport:</text>
+<text xml:space="preserve" text-anchor="start" x="110" y="-1208.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="118.25" y="-1208.7" font-family="monospace" font-size="14.00" fill="#996300">Func_Modulo_C</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-1194.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-1194.7" font-family="monospace" font-size="14.00" fill="#800080">SuperStruct:</text>
+<text xml:space="preserve" text-anchor="start" x="126.5" y="-1194.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="151.25" y="-1194.7" font-family="monospace" font-size="14.00" fill="#996300">import /Script/Engine&#45;&gt;BlueprintFunctionLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-1180.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-1180.7" font-family="monospace" font-size="14.00" fill="#800080">Properties:</text>
+</g>
+<!-- Modulo Int(Truncated) -->
+<g id="node2" class="node">
+<title>Modulo Int(Truncated)</title>
+<polygon fill="#ffd4d4" stroke="none" points="644.12,-1176.5 644.12,-1224.5 1103.88,-1224.5 1103.88,-1176.5 644.12,-1176.5"/>
+<polygon fill="none" stroke="black" points="644.12,-1176.5 644.12,-1224.5 1103.88,-1224.5 1103.88,-1176.5 644.12,-1176.5"/>
+<text xml:space="preserve" text-anchor="start" x="647.12" y="-1209.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="713.12" y="-1209.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="721.38" y="-1209.2" font-family="monospace" font-size="14.00" fill="#6a0080">Modulo Int(Truncated)</text>
+<text xml:space="preserve" text-anchor="start" x="647.12" y="-1195.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="663.62" y="-1195.2" font-family="monospace" font-size="14.00" fill="#996300">Int</text>
+<text xml:space="preserve" text-anchor="start" x="688.38" y="-1195.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="713.12" y="-1195.2" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="647.12" y="-1181.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="680.12" y="-1181.2" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- Modulo Int(Truncated)__block_0 -->
+<g id="node3" class="node">
+<title>Modulo Int(Truncated)__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="565.75,-964 565.75,-1132.5 1182.25,-1132.5 1182.25,-964 565.75,-964"/>
+<polygon fill="none" stroke="black" points="565.75,-1110 565.75,-1132.5 1182.25,-1132.5 1182.25,-1110 565.75,-1110"/>
+<text xml:space="preserve" text-anchor="start" x="709" y="-1116.2" font-family="monospace" font-size="14.00">Func_Modulo_C::Modulo Int(Truncated) @ 0</text>
+<polygon fill="none" stroke="black" points="565.75,-964 565.75,-1110 1182.25,-1110 1182.25,-964 565.75,-964"/>
+<text xml:space="preserve" text-anchor="start" x="568.75" y="-1094.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="593.5" y="-1094.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="568.75" y="-1080.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">9: </text>
+<text xml:space="preserve" text-anchor="start" x="593.5" y="-1080.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="610" y="-1080.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="742" y="-1080.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="750.25" y="-1080.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Percent_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="568.75" y="-1066.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">18: </text>
+<text xml:space="preserve" text-anchor="start" x="601.75" y="-1066.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="618.25" y="-1066.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="709" y="-1066.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="717.25" y="-1066.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;Percent_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="568.75" y="-1052.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">27: </text>
+<text xml:space="preserve" text-anchor="start" x="601.75" y="-1052.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="634.75" y="-1052.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="766.75" y="-1052.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="775" y="-1052.7" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="568.75" y="-1038.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">36: </text>
+<text xml:space="preserve" text-anchor="start" x="601.75" y="-1038.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="634.75" y="-1038.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="766.75" y="-1038.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="775" y="-1038.7" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="568.75" y="-1024.7" font-family="monospace" font-size="14.00" fill="#555555">46: </text>
+<text xml:space="preserve" text-anchor="start" x="601.75" y="-1024.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="568.75" y="-1010.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">55: </text>
+<text xml:space="preserve" text-anchor="start" x="601.75" y="-1010.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="618.25" y="-1010.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="775" y="-1010.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="783.25" y="-1010.7" font-family="monospace" font-size="14.00" fill="#006400">Result</text>
+<text xml:space="preserve" text-anchor="start" x="568.75" y="-996.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">64: </text>
+<text xml:space="preserve" text-anchor="start" x="601.75" y="-996.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="618.25" y="-996.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="750.25" y="-996.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="758.5" y="-996.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Percent_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="568.75" y="-982.7" font-family="monospace" font-size="14.00" fill="#555555">73: </text>
+<text xml:space="preserve" text-anchor="start" x="601.75" y="-982.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="568.75" y="-968.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">74: </text>
+<text xml:space="preserve" text-anchor="start" x="601.75" y="-968.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="618.25" y="-968.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- Modulo Int(Truncated)&#45;&gt;Modulo Int(Truncated)__block_0 -->
+<g id="edge1" class="edge">
+<title>Modulo Int(Truncated)&#45;&gt;Modulo Int(Truncated)__block_0:n</title>
+<path fill="none" stroke="black" d="M874,-1172.52C874,-1164.86 874,-1156.29 874,-1147.84"/>
+<polygon fill="black" stroke="black" points="877.5,-1148.01 874,-1138.01 870.5,-1148.01 877.5,-1148.01"/>
+</g>
+<!-- ModuloInt(Floored) -->
+<g id="node4" class="node">
+<title>ModuloInt(Floored)</title>
+<polygon fill="#ffd4d4" stroke="none" points="1646.12,-1176 1646.12,-1224 2105.88,-1224 2105.88,-1176 1646.12,-1176"/>
+<polygon fill="none" stroke="black" points="1646.12,-1176 1646.12,-1224 2105.88,-1224 2105.88,-1176 1646.12,-1176"/>
+<text xml:space="preserve" text-anchor="start" x="1649.12" y="-1208.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="1715.12" y="-1208.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1723.38" y="-1208.7" font-family="monospace" font-size="14.00" fill="#6a0080">ModuloInt(Floored)</text>
+<text xml:space="preserve" text-anchor="start" x="1649.12" y="-1194.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1665.62" y="-1194.7" font-family="monospace" font-size="14.00" fill="#996300">Int</text>
+<text xml:space="preserve" text-anchor="start" x="1690.38" y="-1194.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="1715.12" y="-1194.7" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="1649.12" y="-1180.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1682.12" y="-1180.7" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- ModuloInt(Floored)__block_0 -->
+<g id="node5" class="node">
+<title>ModuloInt(Floored)__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="1547.12,-1005.5 1547.12,-1132 2204.88,-1132 2204.88,-1005.5 1547.12,-1005.5"/>
+<polygon fill="none" stroke="black" points="1547.12,-1109.5 1547.12,-1132 2204.88,-1132 2204.88,-1109.5 1547.12,-1109.5"/>
+<text xml:space="preserve" text-anchor="start" x="1723.38" y="-1115.7" font-family="monospace" font-size="14.00">Func_Modulo_C::ModuloInt(Floored) @ 0</text>
+<polygon fill="none" stroke="black" points="1547.12,-1005.5 1547.12,-1109.5 2204.88,-1109.5 2204.88,-1005.5 1547.12,-1005.5"/>
+<text xml:space="preserve" text-anchor="start" x="1550.12" y="-1094.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="1574.88" y="-1094.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="1550.12" y="-1080.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">1: </text>
+<text xml:space="preserve" text-anchor="start" x="1574.88" y="-1080.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1591.38" y="-1080.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1723.38" y="-1080.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1731.62" y="-1080.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GreaterEqual_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1550.12" y="-1066.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">10: </text>
+<text xml:space="preserve" text-anchor="start" x="1583.12" y="-1066.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1599.62" y="-1066.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="1690.38" y="-1066.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1698.62" y="-1066.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;GreaterEqual_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="1550.12" y="-1052.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">19: </text>
+<text xml:space="preserve" text-anchor="start" x="1583.12" y="-1052.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1616.12" y="-1052.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1748.12" y="-1052.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1756.38" y="-1052.2" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="1550.12" y="-1038.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">28: </text>
+<text xml:space="preserve" text-anchor="start" x="1583.12" y="-1038.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1616.12" y="-1038.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1706.88" y="-1038.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1715.12" y="-1038.2" font-family="monospace" font-size="14.00" fill="#0000cd">0</text>
+<text xml:space="preserve" text-anchor="start" x="1550.12" y="-1024.2" font-family="monospace" font-size="14.00" fill="#555555">34: </text>
+<text xml:space="preserve" text-anchor="start" x="1583.12" y="-1024.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="1682.12" y="-1024.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1690.38" y="-1024.2" font-family="monospace" font-size="14.00" fill="#555555">205</text>
+<text xml:space="preserve" text-anchor="start" x="1550.12" y="-1010.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">39: </text>
+<text xml:space="preserve" text-anchor="start" x="1583.12" y="-1010.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1599.62" y="-1010.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1731.62" y="-1010.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1739.88" y="-1010.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GreaterEqual_IntInt_ReturnValue</text>
+</g>
+<!-- ModuloInt(Floored)&#45;&gt;ModuloInt(Floored)__block_0 -->
+<g id="edge2" class="edge">
+<title>ModuloInt(Floored)&#45;&gt;ModuloInt(Floored)__block_0:n</title>
+<path fill="none" stroke="black" d="M1876,-1172.02C1876,-1164.36 1876,-1155.79 1876,-1147.34"/>
+<polygon fill="black" stroke="black" points="1879.5,-1147.51 1876,-1137.51 1872.5,-1147.51 1879.5,-1147.51"/>
+</g>
+<!-- ModuloInt(Floored)__block_205 -->
+<g id="node6" class="node">
+<title>ModuloInt(Floored)__block_205</title>
+<polygon fill="#eeeeee" stroke="none" points="1729.5,-4 1729.5,-452.5 2362.5,-452.5 2362.5,-4 1729.5,-4"/>
+<polygon fill="none" stroke="black" points="1729.5,-430 1729.5,-452.5 2362.5,-452.5 2362.5,-430 1729.5,-430"/>
+<text xml:space="preserve" text-anchor="start" x="1885.12" y="-436.2" font-family="monospace" font-size="14.00">Func_Modulo_C::ModuloInt(Floored) @ 205</text>
+<polygon fill="none" stroke="black" points="1729.5,-4 1729.5,-430 2362.5,-430 2362.5,-4 1729.5,-4"/>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-414.7" font-family="monospace" font-size="14.00" fill="#555555">205: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-414.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-400.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">214: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-400.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-400.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1922.25" y="-400.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1930.5" y="-400.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Multiply_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-386.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">223: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-386.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-386.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="1881" y="-386.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1889.25" y="-386.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;Multiply_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-372.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">232: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-372.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1806.75" y="-372.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1938.75" y="-372.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1947" y="-372.7" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-358.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">241: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-358.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1806.75" y="-358.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1897.5" y="-358.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1905.75" y="-358.7" font-family="monospace" font-size="14.00" fill="#0000cd">&#45;1</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-344.7" font-family="monospace" font-size="14.00" fill="#555555">247: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-344.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-330.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">256: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-330.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-330.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1922.25" y="-330.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1930.5" y="-330.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Multiply_IntInt_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-316.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">265: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-316.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-316.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="1881" y="-316.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1889.25" y="-316.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;Multiply_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-302.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">274: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-302.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1806.75" y="-302.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1938.75" y="-302.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1947" y="-302.7" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-288.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">283: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-288.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1806.75" y="-288.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1897.5" y="-288.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1905.75" y="-288.7" font-family="monospace" font-size="14.00" fill="#0000cd">&#45;1</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-274.7" font-family="monospace" font-size="14.00" fill="#555555">289: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-274.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1922.25" y="-274.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1930.5" y="-274.7" font-family="monospace" font-size="14.00" fill="#6a0080">ModuloInt(Floored)</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-260.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">302: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-260.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-260.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1922.25" y="-260.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1930.5" y="-260.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Multiply_IntInt_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-246.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">311: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-246.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-246.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1922.25" y="-246.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1930.5" y="-246.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Multiply_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-232.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">320: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-232.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-232.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1922.25" y="-232.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1930.5" y="-232.7" font-family="monospace" font-size="14.00" fill="#006400">__WorldContext</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-218.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">329: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-218.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-218.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1922.25" y="-218.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1930.5" y="-218.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_ModuloInt_Floored__Result</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-204.7" font-family="monospace" font-size="14.00" fill="#555555">339: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-204.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-190.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">348: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-190.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-190.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1922.25" y="-190.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1930.5" y="-190.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Multiply_IntInt_ReturnValue3</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-176.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">357: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-176.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-176.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="1881" y="-176.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1889.25" y="-176.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;Multiply_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-162.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">366: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-162.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1806.75" y="-162.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1938.75" y="-162.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1947" y="-162.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_ModuloInt_Floored__Result</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-148.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">375: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-148.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1806.75" y="-148.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1897.5" y="-148.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1905.75" y="-148.7" font-family="monospace" font-size="14.00" fill="#0000cd">&#45;1</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-134.7" font-family="monospace" font-size="14.00" fill="#555555">381: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-134.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-120.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">390: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-120.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-120.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1922.25" y="-120.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1930.5" y="-120.7" font-family="monospace" font-size="14.00" fill="#006400">Val</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-106.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">399: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-106.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-106.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1922.25" y="-106.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1930.5" y="-106.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Multiply_IntInt_ReturnValue3</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-92.7" font-family="monospace" font-size="14.00" fill="#555555">408: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-92.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="1831.5" y="-92.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1839.75" y="-92.7" font-family="monospace" font-size="14.00" fill="#555555">173</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-78.7" font-family="monospace" font-size="14.00" fill="#555555">173: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-78.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-64.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">182: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-64.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-64.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1947" y="-64.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1955.25" y="-64.7" font-family="monospace" font-size="14.00" fill="#006400">Result</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-50.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">191: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-50.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-50.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1922.25" y="-50.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1930.5" y="-50.7" font-family="monospace" font-size="14.00" fill="#006400">Val</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-36.7" font-family="monospace" font-size="14.00" fill="#555555">200: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-36.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="1831.5" y="-36.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1839.75" y="-36.7" font-family="monospace" font-size="14.00" fill="#555555">591</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-22.7" font-family="monospace" font-size="14.00" fill="#555555">591: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-22.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="1732.5" y="-8.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">592: </text>
+<text xml:space="preserve" text-anchor="start" x="1773.75" y="-8.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1790.25" y="-8.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ModuloInt(Floored)__block_0&#45;&gt;ModuloInt(Floored)__block_205 -->
+<g id="edge3" class="edge">
+<title>ModuloInt(Floored)__block_0:e&#45;&gt;ModuloInt(Floored)__block_205:n</title>
+<path fill="none" stroke="red" d="M2213.56,-1068.75C2345.63,-1068.75 2446.89,-591.08 2359,-492.5 2315.23,-443.4 2077.45,-516.57 2048.82,-467.56"/>
+<polygon fill="none" stroke="red" points="2052.24,-466.79 2046.37,-457.97 2045.45,-468.52 2052.24,-466.79"/>
+</g>
+<!-- ModuloInt(Floored)__block_48 -->
+<g id="node7" class="node">
+<title>ModuloInt(Floored)__block_48</title>
+<polygon fill="#eeeeee" stroke="none" points="1381.12,-835 1381.12,-961.5 2038.87,-961.5 2038.87,-835 1381.12,-835"/>
+<polygon fill="none" stroke="black" points="1381.12,-939 1381.12,-961.5 2038.87,-961.5 2038.87,-939 1381.12,-939"/>
+<text xml:space="preserve" text-anchor="start" x="1553.25" y="-945.2" font-family="monospace" font-size="14.00">Func_Modulo_C::ModuloInt(Floored) @ 48</text>
+<polygon fill="none" stroke="black" points="1381.12,-835 1381.12,-939 2038.87,-939 2038.87,-835 1381.12,-835"/>
+<text xml:space="preserve" text-anchor="start" x="1384.12" y="-923.7" font-family="monospace" font-size="14.00" fill="#555555">48: </text>
+<text xml:space="preserve" text-anchor="start" x="1417.12" y="-923.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="1384.12" y="-909.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">49: </text>
+<text xml:space="preserve" text-anchor="start" x="1417.12" y="-909.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1433.62" y="-909.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1565.62" y="-909.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1573.87" y="-909.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GreaterEqual_IntInt_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="1384.12" y="-895.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">58: </text>
+<text xml:space="preserve" text-anchor="start" x="1417.12" y="-895.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1433.62" y="-895.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="1524.37" y="-895.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1532.62" y="-895.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;GreaterEqual_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="1384.12" y="-881.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">67: </text>
+<text xml:space="preserve" text-anchor="start" x="1417.12" y="-881.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1450.12" y="-881.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1582.12" y="-881.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1590.37" y="-881.7" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="1384.12" y="-867.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">76: </text>
+<text xml:space="preserve" text-anchor="start" x="1417.12" y="-867.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1450.12" y="-867.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1540.87" y="-867.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1549.12" y="-867.7" font-family="monospace" font-size="14.00" fill="#0000cd">0</text>
+<text xml:space="preserve" text-anchor="start" x="1384.12" y="-853.7" font-family="monospace" font-size="14.00" fill="#555555">82: </text>
+<text xml:space="preserve" text-anchor="start" x="1417.12" y="-853.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="1516.12" y="-853.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1524.37" y="-853.7" font-family="monospace" font-size="14.00" fill="#555555">413</text>
+<text xml:space="preserve" text-anchor="start" x="1384.12" y="-839.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">87: </text>
+<text xml:space="preserve" text-anchor="start" x="1417.12" y="-839.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1433.62" y="-839.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1565.62" y="-839.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1573.87" y="-839.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GreaterEqual_IntInt_ReturnValue2</text>
+</g>
+<!-- ModuloInt(Floored)__block_0&#45;&gt;ModuloInt(Floored)__block_48 -->
+<g id="edge4" class="edge">
+<title>ModuloInt(Floored)__block_0&#45;&gt;ModuloInt(Floored)__block_48:n</title>
+<path fill="none" stroke="green" d="M1721.15,-1001.51C1716.18,-994.14 1712.64,-985.98 1711.01,-976.95"/>
+<polygon fill="green" stroke="green" points="1714.5,-976.66 1710.13,-967.01 1707.53,-977.28 1714.5,-976.66"/>
+</g>
+<!-- ModuloInt(Floored)__block_413 -->
+<g id="node8" class="node">
+<title>ModuloInt(Floored)__block_413</title>
+<polygon fill="#eeeeee" stroke="none" points="1750.12,-496.5 1750.12,-791 2341.88,-791 2341.88,-496.5 1750.12,-496.5"/>
+<polygon fill="none" stroke="black" points="1750.12,-768.5 1750.12,-791 2341.88,-791 2341.88,-768.5 1750.12,-768.5"/>
+<text xml:space="preserve" text-anchor="start" x="1885.12" y="-774.7" font-family="monospace" font-size="14.00">Func_Modulo_C::ModuloInt(Floored) @ 413</text>
+<polygon fill="none" stroke="black" points="1750.12,-496.5 1750.12,-768.5 2341.88,-768.5 2341.88,-496.5 1750.12,-496.5"/>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-753.2" font-family="monospace" font-size="14.00" fill="#555555">413: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-753.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-753.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-753.2" font-family="monospace" font-size="14.00" fill="#6a0080">Modulo Int(Truncated)</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-739.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">426: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-739.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-739.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-739.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-739.2" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-725.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">435: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-725.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-725.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-725.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-725.2" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-711.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">444: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-711.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-711.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-711.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-711.2" font-family="monospace" font-size="14.00" fill="#006400">__WorldContext</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-697.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">453: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-697.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-697.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-697.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-697.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result2</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-683.2" font-family="monospace" font-size="14.00" fill="#555555">463: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-683.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-669.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">472: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-669.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-669.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-669.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-669.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Add_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-655.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">481: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-655.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-655.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="1901.62" y="-655.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1909.88" y="-655.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;Add_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-641.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">490: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-641.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1827.38" y="-641.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1959.38" y="-641.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1967.62" y="-641.2" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-627.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">499: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-627.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1827.38" y="-627.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1959.38" y="-627.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1967.62" y="-627.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result2</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-613.2" font-family="monospace" font-size="14.00" fill="#555555">509: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-613.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-613.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-613.2" font-family="monospace" font-size="14.00" fill="#6a0080">Modulo Int(Truncated)</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-599.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">522: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-599.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-599.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-599.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-599.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Add_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-585.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">531: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-585.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-585.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-585.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-585.2" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-571.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">540: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-571.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-571.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-571.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-571.2" font-family="monospace" font-size="14.00" fill="#006400">__WorldContext</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-557.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">549: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-557.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-557.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-557.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-557.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result3</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-543.2" font-family="monospace" font-size="14.00" fill="#555555">559: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-543.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-529.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">568: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-529.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-529.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-529.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-529.2" font-family="monospace" font-size="14.00" fill="#006400">Val</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-515.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">577: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-515.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1810.88" y="-515.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1942.88" y="-515.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1951.12" y="-515.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result3</text>
+<text xml:space="preserve" text-anchor="start" x="1753.12" y="-501.2" font-family="monospace" font-size="14.00" fill="#555555">586: </text>
+<text xml:space="preserve" text-anchor="start" x="1794.38" y="-501.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="1852.12" y="-501.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1860.38" y="-501.2" font-family="monospace" font-size="14.00" fill="#555555">173</text>
+</g>
+<!-- ModuloInt(Floored)__block_48&#45;&gt;ModuloInt(Floored)__block_413 -->
+<g id="edge5" class="edge">
+<title>ModuloInt(Floored)__block_48:e&#45;&gt;ModuloInt(Floored)__block_413:n</title>
+<path fill="none" stroke="red" d="M2047.56,-898.25C2089.77,-898.25 2053,-849.71 2046.84,-806.21"/>
+<polygon fill="none" stroke="red" points="2050.35,-806.22 2046.11,-796.51 2043.37,-806.74 2050.35,-806.22"/>
+</g>
+<!-- ModuloInt(Floored)__block_96 -->
+<g id="node9" class="node">
+<title>ModuloInt(Floored)__block_96</title>
+<polygon fill="#eeeeee" stroke="none" points="1206.38,-573.5 1206.38,-714 1715.62,-714 1715.62,-573.5 1206.38,-573.5"/>
+<polygon fill="none" stroke="black" points="1206.38,-691.5 1206.38,-714 1715.62,-714 1715.62,-691.5 1206.38,-691.5"/>
+<text xml:space="preserve" text-anchor="start" x="1304.25" y="-697.7" font-family="monospace" font-size="14.00">Func_Modulo_C::ModuloInt(Floored) @ 96</text>
+<polygon fill="none" stroke="black" points="1206.38,-573.5 1206.38,-691.5 1715.62,-691.5 1715.62,-573.5 1206.38,-573.5"/>
+<text xml:space="preserve" text-anchor="start" x="1209.38" y="-676.2" font-family="monospace" font-size="14.00" fill="#555555">96: </text>
+<text xml:space="preserve" text-anchor="start" x="1242.38" y="-676.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1390.88" y="-676.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1399.12" y="-676.2" font-family="monospace" font-size="14.00" fill="#6a0080">Modulo Int(Truncated)</text>
+<text xml:space="preserve" text-anchor="start" x="1209.38" y="-662.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">109: </text>
+<text xml:space="preserve" text-anchor="start" x="1250.62" y="-662.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1267.12" y="-662.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1399.12" y="-662.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1407.38" y="-662.2" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="1209.38" y="-648.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">118: </text>
+<text xml:space="preserve" text-anchor="start" x="1250.62" y="-648.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1267.12" y="-648.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1399.12" y="-648.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1407.38" y="-648.2" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="1209.38" y="-634.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">127: </text>
+<text xml:space="preserve" text-anchor="start" x="1250.62" y="-634.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1267.12" y="-634.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1399.12" y="-634.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1407.38" y="-634.2" font-family="monospace" font-size="14.00" fill="#006400">__WorldContext</text>
+<text xml:space="preserve" text-anchor="start" x="1209.38" y="-620.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">136: </text>
+<text xml:space="preserve" text-anchor="start" x="1250.62" y="-620.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1267.12" y="-620.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1399.12" y="-620.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1407.38" y="-620.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result</text>
+<text xml:space="preserve" text-anchor="start" x="1209.38" y="-606.2" font-family="monospace" font-size="14.00" fill="#555555">146: </text>
+<text xml:space="preserve" text-anchor="start" x="1250.62" y="-606.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1209.38" y="-592.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">155: </text>
+<text xml:space="preserve" text-anchor="start" x="1250.62" y="-592.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1267.12" y="-592.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1399.12" y="-592.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1407.38" y="-592.2" font-family="monospace" font-size="14.00" fill="#006400">Val</text>
+<text xml:space="preserve" text-anchor="start" x="1209.38" y="-578.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">164: </text>
+<text xml:space="preserve" text-anchor="start" x="1250.62" y="-578.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1267.12" y="-578.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1399.12" y="-578.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1407.38" y="-578.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result</text>
+</g>
+<!-- ModuloInt(Floored)__block_48&#45;&gt;ModuloInt(Floored)__block_96 -->
+<g id="edge6" class="edge">
+<title>ModuloInt(Floored)__block_48&#45;&gt;ModuloInt(Floored)__block_96:n</title>
+<path fill="none" stroke="green" d="M1533.69,-831.07C1496.08,-806.17 1466.15,-773.12 1461.6,-730.08"/>
+<polygon fill="green" stroke="green" points="1465.1,-729.93 1461.08,-720.13 1458.11,-730.3 1465.1,-729.93"/>
+</g>
+<!-- ModuloInt(Floored)__block_413&#45;&gt;ModuloInt(Floored)__block_205 -->
+<g id="edge7" class="edge">
+<title>ModuloInt(Floored)__block_413&#45;&gt;ModuloInt(Floored)__block_205:n</title>
+<path fill="none" stroke="black" d="M2046,-492.56C2046,-484.27 2046,-476 2046,-467.88"/>
+<polygon fill="black" stroke="black" points="2049.5,-468.01 2046,-458.01 2042.5,-468.01 2049.5,-468.01"/>
+</g>
+<!-- ModuloInt(Floored)__block_96&#45;&gt;ModuloInt(Floored)__block_205 -->
+<g id="edge8" class="edge">
+<title>ModuloInt(Floored)__block_96&#45;&gt;ModuloInt(Floored)__block_205:n</title>
+<path fill="none" stroke="black" d="M1570.35,-569.52C1618.31,-540.86 1676.48,-510.58 1733,-492.5 1763.15,-482.86 1994.73,-489.84 2038.78,-465.38"/>
+<polygon fill="black" stroke="black" points="2041.45,-467.64 2045.04,-457.67 2036.02,-463.22 2041.45,-467.64"/>
+</g>
+<!-- ModuloInt(Euclidean) -->
+<g id="node10" class="node">
+<title>ModuloInt(Euclidean)</title>
+<polygon fill="#ffd4d4" stroke="none" points="2903.12,-1176 2903.12,-1224 3362.88,-1224 3362.88,-1176 2903.12,-1176"/>
+<polygon fill="none" stroke="black" points="2903.12,-1176 2903.12,-1224 3362.88,-1224 3362.88,-1176 2903.12,-1176"/>
+<text xml:space="preserve" text-anchor="start" x="2906.12" y="-1208.7" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="2972.12" y="-1208.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2980.38" y="-1208.7" font-family="monospace" font-size="14.00" fill="#6a0080">ModuloInt(Euclidean)</text>
+<text xml:space="preserve" text-anchor="start" x="2906.12" y="-1194.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2922.62" y="-1194.7" font-family="monospace" font-size="14.00" fill="#996300">Int</text>
+<text xml:space="preserve" text-anchor="start" x="2947.38" y="-1194.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="2972.12" y="-1194.7" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="2906.12" y="-1180.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2939.12" y="-1180.7" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- ModuloInt(Euclidean)__block_0 -->
+<g id="node11" class="node">
+<title>ModuloInt(Euclidean)__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="2804.12,-1005.5 2804.12,-1132 3461.88,-1132 3461.88,-1005.5 2804.12,-1005.5"/>
+<polygon fill="none" stroke="black" points="2804.12,-1109.5 2804.12,-1132 3461.88,-1132 3461.88,-1109.5 2804.12,-1109.5"/>
+<text xml:space="preserve" text-anchor="start" x="2972.12" y="-1115.7" font-family="monospace" font-size="14.00">Func_Modulo_C::ModuloInt(Euclidean) @ 0</text>
+<polygon fill="none" stroke="black" points="2804.12,-1005.5 2804.12,-1109.5 3461.88,-1109.5 3461.88,-1005.5 2804.12,-1005.5"/>
+<text xml:space="preserve" text-anchor="start" x="2807.12" y="-1094.2" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="2831.88" y="-1094.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="2807.12" y="-1080.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">1: </text>
+<text xml:space="preserve" text-anchor="start" x="2831.88" y="-1080.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2848.38" y="-1080.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2980.38" y="-1080.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2988.62" y="-1080.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GreaterEqual_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="2807.12" y="-1066.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">10: </text>
+<text xml:space="preserve" text-anchor="start" x="2840.12" y="-1066.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2856.62" y="-1066.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="2947.38" y="-1066.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2955.62" y="-1066.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;GreaterEqual_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="2807.12" y="-1052.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">19: </text>
+<text xml:space="preserve" text-anchor="start" x="2840.12" y="-1052.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2873.12" y="-1052.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3005.12" y="-1052.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3013.38" y="-1052.2" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="2807.12" y="-1038.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">28: </text>
+<text xml:space="preserve" text-anchor="start" x="2840.12" y="-1038.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2873.12" y="-1038.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="2963.88" y="-1038.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2972.12" y="-1038.2" font-family="monospace" font-size="14.00" fill="#0000cd">0</text>
+<text xml:space="preserve" text-anchor="start" x="2807.12" y="-1024.2" font-family="monospace" font-size="14.00" fill="#555555">34: </text>
+<text xml:space="preserve" text-anchor="start" x="2840.12" y="-1024.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="2939.12" y="-1024.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2947.38" y="-1024.2" font-family="monospace" font-size="14.00" fill="#555555">205</text>
+<text xml:space="preserve" text-anchor="start" x="2807.12" y="-1010.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">39: </text>
+<text xml:space="preserve" text-anchor="start" x="2840.12" y="-1010.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2856.62" y="-1010.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2988.62" y="-1010.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2996.88" y="-1010.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GreaterEqual_IntInt_ReturnValue</text>
+</g>
+<!-- ModuloInt(Euclidean)&#45;&gt;ModuloInt(Euclidean)__block_0 -->
+<g id="edge9" class="edge">
+<title>ModuloInt(Euclidean)&#45;&gt;ModuloInt(Euclidean)__block_0:n</title>
+<path fill="none" stroke="black" d="M3133,-1172.02C3133,-1164.36 3133,-1155.79 3133,-1147.34"/>
+<polygon fill="black" stroke="black" points="3136.5,-1147.51 3133,-1137.51 3129.5,-1147.51 3136.5,-1147.51"/>
+</g>
+<!-- ModuloInt(Euclidean)__block_205 -->
+<g id="node12" class="node">
+<title>ModuloInt(Euclidean)__block_205</title>
+<polygon fill="#eeeeee" stroke="none" points="2986.5,-144 2986.5,-452.5 3619.5,-452.5 3619.5,-144 2986.5,-144"/>
+<polygon fill="none" stroke="black" points="2986.5,-430 2986.5,-452.5 3619.5,-452.5 3619.5,-430 2986.5,-430"/>
+<text xml:space="preserve" text-anchor="start" x="3133.88" y="-436.2" font-family="monospace" font-size="14.00">Func_Modulo_C::ModuloInt(Euclidean) @ 205</text>
+<polygon fill="none" stroke="black" points="2986.5,-144 2986.5,-430 3619.5,-430 3619.5,-144 2986.5,-144"/>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-414.7" font-family="monospace" font-size="14.00" fill="#555555">205: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-414.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-400.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">214: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-400.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3047.25" y="-400.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3179.25" y="-400.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3187.5" y="-400.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Multiply_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-386.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">223: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-386.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3047.25" y="-386.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="3138" y="-386.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3146.25" y="-386.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;Multiply_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-372.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">232: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-372.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3063.75" y="-372.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3195.75" y="-372.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3204" y="-372.7" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-358.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">241: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-358.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3063.75" y="-358.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="3154.5" y="-358.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3162.75" y="-358.7" font-family="monospace" font-size="14.00" fill="#0000cd">&#45;1</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-344.7" font-family="monospace" font-size="14.00" fill="#555555">247: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-344.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3179.25" y="-344.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3187.5" y="-344.7" font-family="monospace" font-size="14.00" fill="#6a0080">ModuloInt(Floored)</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-330.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">260: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-330.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3047.25" y="-330.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3179.25" y="-330.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3187.5" y="-330.7" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-316.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">269: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-316.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3047.25" y="-316.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3179.25" y="-316.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3187.5" y="-316.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Multiply_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-302.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">278: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-302.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3047.25" y="-302.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3179.25" y="-302.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3187.5" y="-302.7" font-family="monospace" font-size="14.00" fill="#006400">__WorldContext</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-288.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">287: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-288.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3047.25" y="-288.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3179.25" y="-288.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3187.5" y="-288.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_ModuloInt_Floored__Result</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-274.7" font-family="monospace" font-size="14.00" fill="#555555">297: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-274.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-260.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">306: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-260.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3047.25" y="-260.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3179.25" y="-260.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3187.5" y="-260.7" font-family="monospace" font-size="14.00" fill="#006400">Val</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-246.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">315: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-246.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3047.25" y="-246.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3179.25" y="-246.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3187.5" y="-246.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_ModuloInt_Floored__Result</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-232.7" font-family="monospace" font-size="14.00" fill="#555555">324: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-232.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="3088.5" y="-232.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3096.75" y="-232.7" font-family="monospace" font-size="14.00" fill="#555555">173</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-218.7" font-family="monospace" font-size="14.00" fill="#555555">173: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-218.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-204.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">182: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-204.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3047.25" y="-204.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3204" y="-204.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3212.25" y="-204.7" font-family="monospace" font-size="14.00" fill="#006400">Result</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-190.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">191: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-190.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3047.25" y="-190.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3179.25" y="-190.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3187.5" y="-190.7" font-family="monospace" font-size="14.00" fill="#006400">Val</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-176.7" font-family="monospace" font-size="14.00" fill="#555555">200: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-176.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="3088.5" y="-176.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3096.75" y="-176.7" font-family="monospace" font-size="14.00" fill="#555555">507</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-162.7" font-family="monospace" font-size="14.00" fill="#555555">507: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-162.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="2989.5" y="-148.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">508: </text>
+<text xml:space="preserve" text-anchor="start" x="3030.75" y="-148.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3047.25" y="-148.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- ModuloInt(Euclidean)__block_0&#45;&gt;ModuloInt(Euclidean)__block_205 -->
+<g id="edge10" class="edge">
+<title>ModuloInt(Euclidean)__block_0:e&#45;&gt;ModuloInt(Euclidean)__block_205:n</title>
+<path fill="none" stroke="red" d="M3470.56,-1068.75C3602.63,-1068.75 3703.89,-591.08 3616,-492.5 3572.23,-443.4 3334.45,-516.57 3305.82,-467.56"/>
+<polygon fill="none" stroke="red" points="3309.24,-466.79 3303.37,-457.97 3302.45,-468.52 3309.24,-466.79"/>
+</g>
+<!-- ModuloInt(Euclidean)__block_48 -->
+<g id="node13" class="node">
+<title>ModuloInt(Euclidean)__block_48</title>
+<polygon fill="#eeeeee" stroke="none" points="2638.12,-835 2638.12,-961.5 3295.88,-961.5 3295.88,-835 2638.12,-835"/>
+<polygon fill="none" stroke="black" points="2638.12,-939 2638.12,-961.5 3295.88,-961.5 3295.88,-939 2638.12,-939"/>
+<text xml:space="preserve" text-anchor="start" x="2802" y="-945.2" font-family="monospace" font-size="14.00">Func_Modulo_C::ModuloInt(Euclidean) @ 48</text>
+<polygon fill="none" stroke="black" points="2638.12,-835 2638.12,-939 3295.88,-939 3295.88,-835 2638.12,-835"/>
+<text xml:space="preserve" text-anchor="start" x="2641.12" y="-923.7" font-family="monospace" font-size="14.00" fill="#555555">48: </text>
+<text xml:space="preserve" text-anchor="start" x="2674.12" y="-923.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="2641.12" y="-909.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">49: </text>
+<text xml:space="preserve" text-anchor="start" x="2674.12" y="-909.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2690.62" y="-909.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2822.62" y="-909.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2830.88" y="-909.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GreaterEqual_IntInt_ReturnValue2</text>
+<text xml:space="preserve" text-anchor="start" x="2641.12" y="-895.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">58: </text>
+<text xml:space="preserve" text-anchor="start" x="2674.12" y="-895.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2690.62" y="-895.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="2781.38" y="-895.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2789.62" y="-895.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;GreaterEqual_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="2641.12" y="-881.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">67: </text>
+<text xml:space="preserve" text-anchor="start" x="2674.12" y="-881.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2707.12" y="-881.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2839.12" y="-881.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2847.38" y="-881.7" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="2641.12" y="-867.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">76: </text>
+<text xml:space="preserve" text-anchor="start" x="2674.12" y="-867.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2707.12" y="-867.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="2797.88" y="-867.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2806.12" y="-867.7" font-family="monospace" font-size="14.00" fill="#0000cd">0</text>
+<text xml:space="preserve" text-anchor="start" x="2641.12" y="-853.7" font-family="monospace" font-size="14.00" fill="#555555">82: </text>
+<text xml:space="preserve" text-anchor="start" x="2674.12" y="-853.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="2773.12" y="-853.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2781.38" y="-853.7" font-family="monospace" font-size="14.00" fill="#555555">329</text>
+<text xml:space="preserve" text-anchor="start" x="2641.12" y="-839.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">87: </text>
+<text xml:space="preserve" text-anchor="start" x="2674.12" y="-839.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2690.62" y="-839.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2822.62" y="-839.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2830.88" y="-839.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GreaterEqual_IntInt_ReturnValue2</text>
+</g>
+<!-- ModuloInt(Euclidean)__block_0&#45;&gt;ModuloInt(Euclidean)__block_48 -->
+<g id="edge11" class="edge">
+<title>ModuloInt(Euclidean)__block_0&#45;&gt;ModuloInt(Euclidean)__block_48:n</title>
+<path fill="none" stroke="green" d="M2978.15,-1001.51C2973.18,-994.14 2969.64,-985.98 2968.01,-976.95"/>
+<polygon fill="green" stroke="green" points="2971.5,-976.66 2967.13,-967.01 2964.53,-977.28 2971.5,-976.66"/>
+</g>
+<!-- ModuloInt(Euclidean)__block_329 -->
+<g id="node14" class="node">
+<title>ModuloInt(Euclidean)__block_329</title>
+<polygon fill="#eeeeee" stroke="none" points="3007.12,-496.5 3007.12,-791 3598.88,-791 3598.88,-496.5 3007.12,-496.5"/>
+<polygon fill="none" stroke="black" points="3007.12,-768.5 3007.12,-791 3598.88,-791 3598.88,-768.5 3007.12,-768.5"/>
+<text xml:space="preserve" text-anchor="start" x="3133.88" y="-774.7" font-family="monospace" font-size="14.00">Func_Modulo_C::ModuloInt(Euclidean) @ 329</text>
+<polygon fill="none" stroke="black" points="3007.12,-496.5 3007.12,-768.5 3598.88,-768.5 3598.88,-496.5 3007.12,-496.5"/>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-753.2" font-family="monospace" font-size="14.00" fill="#555555">329: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-753.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-753.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-753.2" font-family="monospace" font-size="14.00" fill="#6a0080">Modulo Int(Truncated)</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-739.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">342: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-739.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-739.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-739.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-739.2" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-725.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">351: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-725.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-725.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-725.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-725.2" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-711.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">360: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-711.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-711.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-711.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-711.2" font-family="monospace" font-size="14.00" fill="#006400">__WorldContext</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-697.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">369: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-697.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-697.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-697.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-697.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result2</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-683.2" font-family="monospace" font-size="14.00" fill="#555555">379: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-683.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-669.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">388: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-669.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-669.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-669.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-669.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Add_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-655.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">397: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-655.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-655.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="3158.62" y="-655.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3166.88" y="-655.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;Add_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-641.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">406: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-641.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3084.38" y="-641.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3216.38" y="-641.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3224.62" y="-641.2" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-627.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">415: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-627.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3084.38" y="-627.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3216.38" y="-627.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3224.62" y="-627.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result2</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-613.2" font-family="monospace" font-size="14.00" fill="#555555">425: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-613.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-613.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-613.2" font-family="monospace" font-size="14.00" fill="#6a0080">Modulo Int(Truncated)</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-599.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">438: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-599.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-599.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-599.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-599.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Add_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-585.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">447: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-585.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-585.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-585.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-585.2" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-571.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">456: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-571.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-571.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-571.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-571.2" font-family="monospace" font-size="14.00" fill="#006400">__WorldContext</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-557.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">465: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-557.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-557.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-557.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-557.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result3</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-543.2" font-family="monospace" font-size="14.00" fill="#555555">475: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-543.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-529.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">484: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-529.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-529.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-529.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-529.2" font-family="monospace" font-size="14.00" fill="#006400">Val</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-515.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">493: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-515.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3067.88" y="-515.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3199.88" y="-515.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3208.12" y="-515.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result3</text>
+<text xml:space="preserve" text-anchor="start" x="3010.12" y="-501.2" font-family="monospace" font-size="14.00" fill="#555555">502: </text>
+<text xml:space="preserve" text-anchor="start" x="3051.38" y="-501.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="3109.12" y="-501.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3117.38" y="-501.2" font-family="monospace" font-size="14.00" fill="#555555">173</text>
+</g>
+<!-- ModuloInt(Euclidean)__block_48&#45;&gt;ModuloInt(Euclidean)__block_329 -->
+<g id="edge12" class="edge">
+<title>ModuloInt(Euclidean)__block_48:e&#45;&gt;ModuloInt(Euclidean)__block_329:n</title>
+<path fill="none" stroke="red" d="M3304.56,-898.25C3346.77,-898.25 3310,-849.71 3303.84,-806.21"/>
+<polygon fill="none" stroke="red" points="3307.35,-806.22 3303.11,-796.51 3300.37,-806.74 3307.35,-806.22"/>
+</g>
+<!-- ModuloInt(Euclidean)__block_96 -->
+<g id="node15" class="node">
+<title>ModuloInt(Euclidean)__block_96</title>
+<polygon fill="#eeeeee" stroke="none" points="2463.37,-573.5 2463.37,-714 2972.62,-714 2972.62,-573.5 2463.37,-573.5"/>
+<polygon fill="none" stroke="black" points="2463.37,-691.5 2463.37,-714 2972.62,-714 2972.62,-691.5 2463.37,-691.5"/>
+<text xml:space="preserve" text-anchor="start" x="2553" y="-697.7" font-family="monospace" font-size="14.00">Func_Modulo_C::ModuloInt(Euclidean) @ 96</text>
+<polygon fill="none" stroke="black" points="2463.37,-573.5 2463.37,-691.5 2972.62,-691.5 2972.62,-573.5 2463.37,-573.5"/>
+<text xml:space="preserve" text-anchor="start" x="2466.37" y="-676.2" font-family="monospace" font-size="14.00" fill="#555555">96: </text>
+<text xml:space="preserve" text-anchor="start" x="2499.37" y="-676.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="2647.87" y="-676.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2656.12" y="-676.2" font-family="monospace" font-size="14.00" fill="#6a0080">Modulo Int(Truncated)</text>
+<text xml:space="preserve" text-anchor="start" x="2466.37" y="-662.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">109: </text>
+<text xml:space="preserve" text-anchor="start" x="2507.62" y="-662.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2524.12" y="-662.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2656.12" y="-662.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2664.37" y="-662.2" font-family="monospace" font-size="14.00" fill="#006400">A</text>
+<text xml:space="preserve" text-anchor="start" x="2466.37" y="-648.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">118: </text>
+<text xml:space="preserve" text-anchor="start" x="2507.62" y="-648.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2524.12" y="-648.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2656.12" y="-648.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2664.37" y="-648.2" font-family="monospace" font-size="14.00" fill="#006400">B</text>
+<text xml:space="preserve" text-anchor="start" x="2466.37" y="-634.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">127: </text>
+<text xml:space="preserve" text-anchor="start" x="2507.62" y="-634.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2524.12" y="-634.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2656.12" y="-634.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2664.37" y="-634.2" font-family="monospace" font-size="14.00" fill="#006400">__WorldContext</text>
+<text xml:space="preserve" text-anchor="start" x="2466.37" y="-620.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">136: </text>
+<text xml:space="preserve" text-anchor="start" x="2507.62" y="-620.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2524.12" y="-620.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2656.12" y="-620.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2664.37" y="-620.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result</text>
+<text xml:space="preserve" text-anchor="start" x="2466.37" y="-606.2" font-family="monospace" font-size="14.00" fill="#555555">146: </text>
+<text xml:space="preserve" text-anchor="start" x="2507.62" y="-606.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="2466.37" y="-592.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">155: </text>
+<text xml:space="preserve" text-anchor="start" x="2507.62" y="-592.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2524.12" y="-592.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2656.12" y="-592.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2664.37" y="-592.2" font-family="monospace" font-size="14.00" fill="#006400">Val</text>
+<text xml:space="preserve" text-anchor="start" x="2466.37" y="-578.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">164: </text>
+<text xml:space="preserve" text-anchor="start" x="2507.62" y="-578.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2524.12" y="-578.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2656.12" y="-578.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2664.37" y="-578.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Modulo_Int_Truncated__Result</text>
+</g>
+<!-- ModuloInt(Euclidean)__block_48&#45;&gt;ModuloInt(Euclidean)__block_96 -->
+<g id="edge13" class="edge">
+<title>ModuloInt(Euclidean)__block_48&#45;&gt;ModuloInt(Euclidean)__block_96:n</title>
+<path fill="none" stroke="green" d="M2790.69,-831.07C2753.08,-806.17 2723.15,-773.12 2718.6,-730.08"/>
+<polygon fill="green" stroke="green" points="2722.1,-729.93 2718.08,-720.13 2715.11,-730.3 2722.1,-729.93"/>
+</g>
+<!-- ModuloInt(Euclidean)__block_329&#45;&gt;ModuloInt(Euclidean)__block_205 -->
+<g id="edge14" class="edge">
+<title>ModuloInt(Euclidean)__block_329&#45;&gt;ModuloInt(Euclidean)__block_205:n</title>
+<path fill="none" stroke="black" d="M3303,-492.56C3303,-484.27 3303,-476 3303,-467.88"/>
+<polygon fill="black" stroke="black" points="3306.5,-468.01 3303,-458.01 3299.5,-468.01 3306.5,-468.01"/>
+</g>
+<!-- ModuloInt(Euclidean)__block_96&#45;&gt;ModuloInt(Euclidean)__block_205 -->
+<g id="edge15" class="edge">
+<title>ModuloInt(Euclidean)__block_96&#45;&gt;ModuloInt(Euclidean)__block_205:n</title>
+<path fill="none" stroke="black" d="M2827.35,-569.52C2875.31,-540.86 2933.48,-510.58 2990,-492.5 3020.15,-482.86 3251.73,-489.84 3295.78,-465.38"/>
+<polygon fill="black" stroke="black" points="3298.45,-467.64 3302.04,-457.67 3293.02,-463.22 3298.45,-467.64"/>
+</g>
+</g>
+</svg>
+</div>
+    </div>
+  </div>
+
+  <div id="minimap">
+    <div id="minimap-content">
+      <canvas id="minimap-canvas"></canvas>
+      <div id="minimap-viewport"></div>
+    </div>
+  </div>
+
+  <div id="hint">
+    <kbd>Wheel</kbd> zoom &nbsp;
+    <kbd>Drag</kbd> pan
+  </div>
+
+  <div id="drop-overlay">Drop SVG file here</div>
+
+  <script>
+    const fileInput = document.getElementById('file-input');
+    const viewport = document.getElementById('viewport');
+    const svgWrapper = document.getElementById('svg-wrapper');
+    const svgContainer = document.getElementById('svg-container');
+    const zoomLevelEl = document.getElementById('zoom-level');
+    const searchInput = document.getElementById('search-input');
+    const searchInfo = document.getElementById('search-info');
+    const emptyState = document.getElementById('empty-state');
+    const dropOverlay = document.getElementById('drop-overlay');
+    const darkModeToggle = document.getElementById('dark-mode-toggle');
+    const minimapToggle = document.getElementById('minimap-toggle');
+    const minimap = document.getElementById('minimap');
+    const minimapContent = document.getElementById('minimap-content');
+    const minimapCanvas = document.getElementById('minimap-canvas');
+    const minimapViewport = document.getElementById('minimap-viewport');
+
+    let scale = 1;
+    let darkMode = false;
+    let minimapVisible = true;
+    let svgElement = null;
+    let svgWidth = 0;
+    let svgHeight = 0;
+    let minimapImageData = null; // Cached rasterized SVG
+
+    // Panning state
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let scrollStartX = 0;
+    let scrollStartY = 0;
+
+    // Minimap drag state
+    let isMinimapDragging = false;
+    let minimapDragOffsetX = 0;
+    let minimapDragOffsetY = 0;
+
+    // Search state
+    let searchMatches = [];
+    let currentMatchIndex = -1;
+    let highlightGroup = null;
+    let searchDebounceTimer = null;
+
+    const MIN_SCALE = 0.1;
+    const MAX_SCALE = 5;
+
+    // === File Loading ===
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) loadSvgFile(file);
+    });
+
+    // Examples dropdowns (toolbar and empty state)
+    const exampleFiles = [
+      'vm_flow.svg',
+      'PLS_Base.svg',
+      'dominion.svg',
+      'blueprint.svg'
+    ];
+
+    document.querySelectorAll('.examples-select').forEach(select => {
+      // Populate options
+      exampleFiles.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file;
+        option.textContent = file;
+        select.appendChild(option);
+      });
+
+      // Handle selection
+      select.addEventListener('change', async (e) => {
+        const file = e.target.value;
+        if (!file) return;
+
+        try {
+          const response = await fetch(`examples/${file}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${file}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+
+        // Reset dropdown to placeholder
+        select.value = '';
+      });
+    });
+
+    // Empty state file button
+    document.getElementById('empty-file-btn').addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    // Drag and drop
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.add('active');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      if (e.target === dropOverlay) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.remove('active');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.svg')) {
+        loadSvgFile(file);
+      }
+    });
+
+    function loadSvgFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const svgText = e.target.result;
+        loadSvgContent(svgText);
+        document.title = `SVG Viewer - ${file.name}`;
+      };
+      reader.readAsText(file);
+    }
+
+    function loadSvgContent(svgText) {
+      // Clear previous content
+      svgContainer.innerHTML = svgText;
+      svgElement = svgContainer.querySelector('svg');
+
+      if (!svgElement) {
+        alert('Invalid SVG file');
+        return;
+      }
+
+      // Show viewport, hide empty state
+      emptyState.classList.add('hidden');
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap
+      initMinimap(svgText);
+    }
+
+    // === Zoom Controls ===
+
+    document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.25));
+    document.getElementById('zoom-out').addEventListener('click', () => zoomBy(0.8));
+    document.getElementById('zoom-reset').addEventListener('click', () => setZoom(1));
+
+    // === Dark Mode Toggle ===
+
+    darkModeToggle.addEventListener('click', toggleDarkMode);
+
+    function toggleDarkMode() {
+      darkMode = !darkMode;
+      svgContainer.classList.toggle('dark-mode', darkMode);
+      minimapContent.classList.toggle('dark-mode', darkMode);
+      darkModeToggle.classList.toggle('active', darkMode);
+    }
+
+    // === Minimap ===
+
+    minimapToggle.addEventListener('click', toggleMinimap);
+
+    function toggleMinimap() {
+      minimapVisible = !minimapVisible;
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+    }
+
+    function initMinimap(svgText) {
+      // Calculate minimap size to fit within bounds while preserving aspect ratio
+      const maxWidth = 400;
+      const maxHeight = 600;
+      const aspectRatio = svgWidth / svgHeight;
+
+      let mmWidth, mmHeight;
+      if (aspectRatio > maxWidth / maxHeight) {
+        // Width constrained
+        mmWidth = maxWidth;
+        mmHeight = maxWidth / aspectRatio;
+      } else {
+        // Height constrained
+        mmHeight = maxHeight;
+        mmWidth = maxHeight * aspectRatio;
+      }
+
+      minimap.style.width = mmWidth + 'px';
+      minimap.style.height = mmHeight + 'px';
+
+      // Set canvas size (use higher resolution for retina displays)
+      const dpr = window.devicePixelRatio || 1;
+      minimapCanvas.width = mmWidth * dpr;
+      minimapCanvas.height = mmHeight * dpr;
+      minimapCanvas.style.width = mmWidth + 'px';
+      minimapCanvas.style.height = mmHeight + 'px';
+
+      // Show minimap
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+
+      // Sync dark mode
+      minimapContent.classList.toggle('dark-mode', darkMode);
+
+      // Rasterize SVG to canvas
+      rasterizeSvgToCanvas(svgText, mmWidth, mmHeight, dpr);
+
+      // Update viewport indicator
+      updateMinimapViewport();
+    }
+
+    function rasterizeSvgToCanvas(svgText, width, height, dpr) {
+      const img = new Image();
+      const blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+
+      img.onload = () => {
+        const ctx = minimapCanvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+
+        // Cache the image data for potential re-use
+        minimapImageData = ctx.getImageData(0, 0, minimapCanvas.width, minimapCanvas.height);
+      };
+
+      img.onerror = () => {
+        console.error('Failed to rasterize SVG for minimap');
+        URL.revokeObjectURL(url);
+      };
+
+      img.src = url;
+    }
+
+    function updateMinimapViewport() {
+      if (!svgElement || !minimapVisible) return;
+
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+
+      // Padding in the main viewport
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Current scroll position relative to SVG (not padding)
+      const scrollX = viewport.scrollLeft - padX;
+      const scrollY = viewport.scrollTop - padY;
+
+      // Visible area in SVG coordinates
+      const visibleX = scrollX / scale;
+      const visibleY = scrollY / scale;
+      const visibleW = vpRect.width / scale;
+      const visibleH = vpRect.height / scale;
+
+      // Scale to minimap coordinates
+      const mmScaleX = mmRect.width / svgWidth;
+      const mmScaleY = mmRect.height / svgHeight;
+
+      // Position and size the viewport indicator (no clamping - allow overflow)
+      const left = visibleX * mmScaleX;
+      const top = visibleY * mmScaleY;
+      const width = visibleW * mmScaleX;
+      const height = visibleH * mmScaleY;
+
+      minimapViewport.style.left = left + 'px';
+      minimapViewport.style.top = top + 'px';
+      minimapViewport.style.width = Math.max(10, width) + 'px';
+      minimapViewport.style.height = Math.max(10, height) + 'px';
+    }
+
+    // Update minimap on scroll
+    viewport.addEventListener('scroll', updateMinimapViewport);
+
+    // Minimap click/drag to navigate
+    minimapContent.addEventListener('mousedown', (e) => {
+      isMinimapDragging = true;
+
+      // Calculate offset so dragging feels natural
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = minimapViewport.getBoundingClientRect();
+
+      // Check if clicking inside the viewport indicator
+      const inViewport = e.clientX >= vpRect.left && e.clientX <= vpRect.right &&
+        e.clientY >= vpRect.top && e.clientY <= vpRect.bottom;
+
+      if (inViewport) {
+        // Drag from current position
+        minimapDragOffsetX = e.clientX - vpRect.left;
+        minimapDragOffsetY = e.clientY - vpRect.top;
+      } else {
+        // Click outside - center viewport on click point, then allow drag
+        const vpW = vpRect.width;
+        const vpH = vpRect.height;
+        minimapDragOffsetX = vpW / 2;
+        minimapDragOffsetY = vpH / 2;
+        navigateMinimapTo(e, true);
+      }
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isMinimapDragging) return;
+      navigateMinimapTo(e, true);
+    });
+
+    document.addEventListener('mouseup', () => {
+      isMinimapDragging = false;
+    });
+
+    function navigateMinimapTo(e, useDragOffset = false) {
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Mouse position in minimap
+      let mmX = e.clientX - mmRect.left;
+      let mmY = e.clientY - mmRect.top;
+
+      if (useDragOffset) {
+        // Adjust for drag offset (top-left of viewport indicator)
+        mmX -= minimapDragOffsetX;
+        mmY -= minimapDragOffsetY;
+      } else {
+        // Click centers the viewport on that point
+        const vpW = (vpRect.width / scale) * (mmRect.width / svgWidth);
+        const vpH = (vpRect.height / scale) * (mmRect.height / svgHeight);
+        mmX -= vpW / 2;
+        mmY -= vpH / 2;
+      }
+
+      // Convert to SVG coordinates
+      const svgX = (mmX / mmRect.width) * svgWidth;
+      const svgY = (mmY / mmRect.height) * svgHeight;
+
+      // Scroll to position (accounting for padding)
+      viewport.scrollLeft = svgX * scale + padX;
+      viewport.scrollTop = svgY * scale + padY;
+    }
+
+    function zoomBy(factor, centerX, centerY) {
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor));
+      if (newScale === scale) return;
+
+      const rect = viewport.getBoundingClientRect();
+      const oldPadX = rect.width;
+      const oldPadY = rect.height;
+
+      // If center point provided, zoom towards it
+      if (centerX !== undefined && centerY !== undefined) {
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates (accounting for padding)
+        const svgX = (scrollX + centerX - rect.left - oldPadX) / scale;
+        const svgY = (scrollY + centerY - rect.top - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        // New padding after zoom (viewport size doesn't change)
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        // Scroll to keep the point under cursor
+        viewport.scrollLeft = svgX * scale + newPadX - (centerX - rect.left);
+        viewport.scrollTop = svgY * scale + newPadY - (centerY - rect.top);
+      } else {
+        // Zoom towards center of viewport
+        const viewCenterX = rect.width / 2;
+        const viewCenterY = rect.height / 2;
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates
+        const svgX = (scrollX + viewCenterX - oldPadX) / scale;
+        const svgY = (scrollY + viewCenterY - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        viewport.scrollLeft = svgX * scale + newPadX - viewCenterX;
+        viewport.scrollTop = svgY * scale + newPadY - viewCenterY;
+      }
+    }
+
+    function setZoom(newScale) {
+      scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+      updateZoom();
+    }
+
+    function centerSvg() {
+      const rect = viewport.getBoundingClientRect();
+      const padX = rect.width;
+      const padY = rect.height;
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      // Scroll so SVG is centered in viewport
+      viewport.scrollLeft = padX + (scaledW - rect.width) / 2;
+      viewport.scrollTop = padY + (scaledH - rect.height) / 2;
+    }
+
+    function updateZoom() {
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportW = viewportRect.width;
+      const viewportH = viewportRect.height;
+
+      // Padding allows the SVG to be scrolled so it can be centered (or anywhere)
+      const padX = viewportW;
+      const padY = viewportH;
+
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      svgContainer.style.transform = `scale(${scale})`;
+      svgContainer.style.width = scaledW + 'px';
+      svgContainer.style.height = scaledH + 'px';
+
+      // Wrapper includes padding on all sides
+      svgWrapper.style.paddingLeft = padX + 'px';
+      svgWrapper.style.paddingTop = padY + 'px';
+      svgWrapper.style.paddingRight = padX + 'px';
+      svgWrapper.style.paddingBottom = padY + 'px';
+
+      zoomLevelEl.textContent = Math.round(scale * 100) + '%';
+
+      // Update minimap viewport indicator
+      updateMinimapViewport();
+    }
+
+    // Mouse wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      zoomBy(factor, e.clientX, e.clientY);
+    }, {passive: false});
+
+    // === Panning ===
+
+    function isTextElement(el) {
+      while (el && el !== viewport) {
+        if (el.tagName === 'text' || el.tagName === 'tspan') return true;
+        el = el.parentElement;
+      }
+      return false;
+    }
+
+    viewport.addEventListener('mousedown', (e) => {
+      // Middle mouse always pans
+      if (e.button === 1) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+        return;
+      }
+
+      // Left click: pan if not on text, otherwise let browser handle selection
+      if (e.button === 0 && !isTextElement(e.target)) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+      }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isPanning) return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      viewport.scrollLeft = scrollStartX - dx;
+      viewport.scrollTop = scrollStartY - dy;
+    });
+
+    document.addEventListener('mouseup', () => {
+      isPanning = false;
+      viewport.classList.remove('panning');
+    });
+
+    // === Touch Support (pinch zoom only, panning is native scroll) ===
+
+    let touchStartDist = 0;
+    let touchStartScale = 1;
+    let lastTouchCenter = null;
+
+    viewport.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        touchStartDist = getTouchDistance(e.touches);
+        touchStartScale = scale;
+        lastTouchCenter = getTouchCenter(e.touches);
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDistance(e.touches);
+        const center = getTouchCenter(e.touches);
+        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, touchStartScale * (dist / touchStartDist)));
+
+        if (newScale !== scale) {
+          // Zoom towards pinch center
+          const rect = viewport.getBoundingClientRect();
+          const padX = rect.width;
+          const padY = rect.height;
+
+          const svgX = (viewport.scrollLeft + center.x - rect.left - padX) / scale;
+          const svgY = (viewport.scrollTop + center.y - rect.top - padY) / scale;
+
+          scale = newScale;
+          updateZoom();
+
+          viewport.scrollLeft = svgX * scale + padX - (center.x - rect.left);
+          viewport.scrollTop = svgY * scale + padY - (center.y - rect.top);
+        }
+
+        lastTouchCenter = center;
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) {
+        touchStartDist = 0;
+        lastTouchCenter = null;
+      }
+    });
+
+    function getTouchDistance(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getTouchCenter(touches) {
+      return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2
+      };
+    }
+
+    // === Search ===
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(performSearch, 150);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          navigateSearch(-1);
+        } else {
+          navigateSearch(1);
+        }
+      } else if (e.key === 'Escape') {
+        searchInput.blur();
+        clearSearch();
+      }
+    });
+
+    document.getElementById('search-prev').addEventListener('click', () => navigateSearch(-1));
+    document.getElementById('search-next').addEventListener('click', () => navigateSearch(1));
+
+    // CSS Custom Highlight API highlights
+    let searchResultsHighlight = null;
+    let searchCurrentHighlight = null;
+
+    // Initialize highlights if API is available
+    if (CSS.highlights) {
+      searchResultsHighlight = new Highlight();
+      searchCurrentHighlight = new Highlight();
+      CSS.highlights.set('search-results', searchResultsHighlight);
+      CSS.highlights.set('search-current', searchCurrentHighlight);
+    }
+
+    function performSearch() {
+      if (!svgElement) return;
+
+      const query = searchInput.value.trim();
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+
+      if (!query) {
+        updateSearchInfo();
+        searchInput.classList.remove('invalid');
+        return;
+      }
+
+      // Try to compile regex
+      let regex;
+      try {
+        regex = new RegExp(query, 'gi');
+        searchInput.classList.remove('invalid');
+      } catch (e) {
+        // Invalid regex
+        searchInput.classList.add('invalid');
+        updateSearchInfo();
+        return;
+      }
+
+      // Find all text elements containing matches
+      const textElements = svgElement.querySelectorAll('text');
+      textElements.forEach((textEl) => {
+        const content = textEl.textContent || '';
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        let match;
+        regex.lastIndex = 0; // Reset regex state
+        while ((match = regex.exec(content)) !== null) {
+          // Create range for this match
+          try {
+            const range = new Range();
+            range.setStart(textNode, match.index);
+            range.setEnd(textNode, match.index + match[0].length);
+
+            searchMatches.push({
+              element: textEl,
+              start: match.index,
+              length: match[0].length,
+              text: match[0],
+              range: range
+            });
+          } catch (e) {
+            // Range creation failed, skip this match
+          }
+
+          // Prevent infinite loop on zero-length matches
+          if (match[0].length === 0) regex.lastIndex++;
+        }
+      });
+
+      // Add all ranges to the highlight (if API available)
+      if (searchResultsHighlight) {
+        searchMatches.forEach(match => {
+          searchResultsHighlight.add(match.range);
+        });
+      } else {
+        // Fallback: use SVG rects
+        searchMatches.forEach((match, index) => {
+          const rect = createHighlightRect(match);
+          if (rect) {
+            rect.dataset.index = index;
+            highlightGroup.appendChild(rect);
+          }
+        });
+      }
+
+      updateSearchInfo();
+
+      // Navigate to first match (don't select - user is still typing)
+      if (searchMatches.length > 0) {
+        currentMatchIndex = 0;
+        highlightCurrentMatch();
+        scrollToCurrentMatch(false);
+      }
+    }
+
+    function createHighlightRect(match) {
+      try {
+        const textEl = match.element;
+        const fullBbox = textEl.getBBox();
+        const content = textEl.textContent || '';
+
+        // Calculate approximate character width
+        const charWidth = fullBbox.width / content.length;
+
+        // Calculate highlight bounds for the matched portion
+        const x = fullBbox.x + (match.start * charWidth);
+        const width = match.length * charWidth;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x - 1);
+        rect.setAttribute('y', fullBbox.y - 2);
+        rect.setAttribute('width', width + 2);
+        rect.setAttribute('height', fullBbox.height + 4);
+        rect.classList.add('search-highlight');
+
+        // Apply transforms from parent elements
+        let transform = '';
+        let el = textEl;
+        while (el && el !== svgElement) {
+          const t = el.getAttribute('transform');
+          if (t) transform = t + ' ' + transform;
+          el = el.parentElement;
+        }
+        if (transform) {
+          rect.setAttribute('transform', transform);
+        }
+
+        return rect;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function clearHighlights() {
+      // Clear CSS Custom Highlights
+      if (searchResultsHighlight) {
+        searchResultsHighlight.clear();
+      }
+      if (searchCurrentHighlight) {
+        searchCurrentHighlight.clear();
+      }
+      // Clear SVG rect fallback
+      if (highlightGroup) {
+        highlightGroup.innerHTML = '';
+      }
+    }
+
+    function clearSearch() {
+      searchInput.value = '';
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+      updateSearchInfo();
+    }
+
+    function navigateSearch(direction) {
+      if (searchMatches.length === 0) return;
+
+      currentMatchIndex += direction;
+      if (currentMatchIndex >= searchMatches.length) {
+        currentMatchIndex = 0;
+      } else if (currentMatchIndex < 0) {
+        currentMatchIndex = searchMatches.length - 1;
+      }
+
+      highlightCurrentMatch();
+      scrollToCurrentMatch(true); // Select text on explicit navigation
+    }
+
+    function highlightCurrentMatch() {
+      if (searchCurrentHighlight) {
+        // Update current highlight
+        searchCurrentHighlight.clear();
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchMatches.length) {
+          searchCurrentHighlight.add(searchMatches[currentMatchIndex].range);
+        }
+      } else {
+        // Fallback: toggle class on SVG rects
+        const rects = highlightGroup.querySelectorAll('rect');
+        rects.forEach((rect, i) => {
+          rect.classList.toggle('current', i === currentMatchIndex);
+        });
+      }
+      updateSearchInfo();
+    }
+
+    function scrollToCurrentMatch(shouldSelect = false) {
+      if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
+
+      const match = searchMatches[currentMatchIndex];
+      const textEl = match.element;
+      try {
+        const bbox = textEl.getBBox();
+
+        // Get cumulative transform
+        let el = textEl;
+        let matrix = svgElement.createSVGMatrix();
+        const transforms = [];
+        while (el && el !== svgElement) {
+          const t = el.transform?.baseVal?.consolidate()?.matrix;
+          if (t) transforms.unshift(t);
+          el = el.parentElement;
+        }
+        transforms.forEach(t => {
+          matrix = matrix.multiply(t);
+        });
+
+        // Transform the center point
+        const centerX = bbox.x + bbox.width / 2;
+        const centerY = bbox.y + bbox.height / 2;
+        const point = svgElement.createSVGPoint();
+        point.x = centerX;
+        point.y = centerY;
+        const transformed = point.matrixTransform(matrix);
+
+        // Convert to screen coordinates and scroll (accounting for padding)
+        const viewportRect = viewport.getBoundingClientRect();
+        const padX = viewportRect.width;
+        const padY = viewportRect.height;
+
+        const screenX = transformed.x * scale + padX;
+        const screenY = transformed.y * scale + padY;
+
+        const targetScrollX = screenX - viewportRect.width / 2;
+        const targetScrollY = screenY - viewportRect.height / 2;
+
+        viewport.scrollTo({
+          left: targetScrollX,
+          top: targetScrollY,
+          behavior: 'smooth'
+        });
+
+        // Only select text on explicit navigation (Enter/buttons), not while typing
+        if (shouldSelect) {
+          selectMatchedText(match);
+        }
+      } catch (e) {
+        // Fallback: try to scroll the element into view
+        textEl.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});
+      }
+    }
+
+    function selectMatchedText(match) {
+      try {
+        const textEl = match.element;
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.setStart(textNode, match.start);
+        range.setEnd(textNode, match.start + match.length);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (e) {
+        // Selection not supported or failed
+      }
+    }
+
+    function updateSearchInfo() {
+      if (searchMatches.length === 0) {
+        searchInfo.textContent = searchInput.value ? 'No matches' : '0 / 0';
+      } else {
+        searchInfo.textContent = `${currentMatchIndex + 1} / ${searchMatches.length}`;
+      }
+    }
+
+    // === Keyboard Shortcuts ===
+
+    document.addEventListener('keydown', (e) => {
+      // Don't handle shortcuts if typing in search
+      if (document.activeElement === searchInput) return;
+
+      // Zoom shortcuts
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomBy(1.25);
+      } else if (e.key === '-') {
+        e.preventDefault();
+        zoomBy(0.8);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setZoom(1);
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        toggleDarkMode();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        toggleMinimap();
+      }
+    });
+
+    // === Embedded SVG Support ===
+
+    function initializeEmbeddedSvg() {
+      // Check if an SVG is already present in the container (embedded at build time)
+      svgElement = svgContainer.querySelector('svg');
+      if (!svgElement) return false;
+
+      // Hide file selection UI since this is a self-contained viewer
+      const fileGroup = document.querySelector('#toolbar .group:first-child');
+      if (fileGroup) fileGroup.style.display = 'none';
+      emptyState.style.display = 'none';
+
+      // Show viewport
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap - serialize SVG for rasterization
+      const svgText = new XMLSerializer().serializeToString(svgElement);
+      initMinimap(svgText);
+
+      return true;
+    }
+
+    // Check for embedded SVG on startup
+    const hasEmbeddedSvg = initializeEmbeddedSvg();
+
+    // === URL Hash Loading ===
+
+    async function loadFromHash() {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return;
+
+      const params = new URLSearchParams(hash);
+
+      // Check for url= parameter
+      const url = params.get('url');
+      if (url) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            // Extract filename from URL for title
+            const filename = url.split('/').pop() || 'remote';
+            document.title = `SVG Viewer - ${filename}`;
+          } else {
+            console.error('Failed to load SVG from URL:', response.status);
+          }
+        } catch (err) {
+          console.error('Failed to load SVG from URL:', err);
+        }
+        return;
+      }
+
+      // Check for example= parameter
+      const example = params.get('example');
+      if (example && exampleFiles.includes(example)) {
+        try {
+          const response = await fetch(`examples/${example}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${example}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+      }
+    }
+
+    // Only load from hash if no embedded SVG
+    if (!hasEmbeddedSvg) {
+      loadFromHash();
+      window.addEventListener('hashchange', loadFromHash);
+    }
+
+  </script>
+</body>
+
+</html>

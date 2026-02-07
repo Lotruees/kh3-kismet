@@ -1,0 +1,2230 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVG Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #toolbar {
+      background: #2d2d2d;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #444;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #toolbar .group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #toolbar label {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #toolbar button {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    #toolbar button:hover {
+      background: #555;
+    }
+
+    #toolbar button:active {
+      background: #666;
+    }
+
+    #file-input {
+      font-size: 13px;
+    }
+
+    .examples-select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .examples-select:hover {
+      background: #555;
+    }
+
+    #zoom-level {
+      min-width: 50px;
+      text-align: center;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #search-input {
+      background: #333;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      width: 200px;
+    }
+
+    #search-input:focus {
+      outline: none;
+      border-color: #0078d4;
+    }
+
+    #search-input.invalid {
+      border-color: #d32f2f;
+      background: #3d2020;
+    }
+
+    #search-info {
+      font-size: 13px;
+      color: #aaa;
+      min-width: 60px;
+    }
+
+    #viewport {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      touch-action: pan-x pan-y;
+      cursor: grab;
+    }
+
+    #viewport.panning {
+      cursor: grabbing;
+    }
+
+    #svg-container text {
+      cursor: text;
+    }
+
+    #svg-wrapper {
+      display: inline-block;
+      /* Padding allows SVG to be scrolled/centered even when zoomed out */
+    }
+
+    #svg-container {
+      transform-origin: 0 0;
+      display: inline-block;
+    }
+
+    #svg-container svg {
+      display: block;
+    }
+
+    /* Dark mode for SVG - invert with reduced contrast */
+    #svg-container.dark-mode svg {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    /* Toggle button active state */
+    #toolbar button.active {
+      background: #0078d4;
+      border-color: #0078d4;
+    }
+
+    #toolbar button.active:hover {
+      background: #1084d8;
+    }
+
+    /* Search highlight styling - SVG rect fallback */
+    .search-highlight {
+      fill: #22ee22;
+      stroke: #00aa00;
+      stroke-width: 1;
+      pointer-events: none;
+    }
+
+    .search-highlight.current {
+      fill: #ff22ff;
+      stroke: #cc00cc;
+      stroke-width: 2;
+    }
+
+    /* CSS Custom Highlight API styling */
+    ::highlight(search-results) {
+      background-color: #22ee22;
+      color: black;
+    }
+
+    ::highlight(search-current) {
+      background-color: #ff22ff;
+      color: black;
+    }
+
+    #hint {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    #hint kbd {
+      background: #444;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: inherit;
+      margin: 0 2px;
+    }
+
+    /* Hide hint on mobile/touch devices */
+    @media (hover: none),
+    (max-width: 768px) {
+      #hint {
+        display: none;
+      }
+    }
+
+    /* Minimap */
+    #minimap {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      width: 400px;
+      max-height: 600px;
+      background: #2d2d2d;
+      border: 1px solid #444;
+      border-radius: 6px;
+      overflow: hidden;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    #minimap.visible {
+      display: block;
+    }
+
+    #minimap-content {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #minimap-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #minimap-viewport {
+      position: absolute;
+      border: 2px solid #0078d4;
+      background: rgba(0, 120, 212, 0.15);
+      cursor: move;
+      pointer-events: auto;
+    }
+
+    #minimap-content.dark-mode #minimap-canvas {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    #drop-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 120, 212, 0.2);
+      border: 3px dashed #0078d4;
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #0078d4;
+    }
+
+    #drop-overlay.active {
+      display: flex;
+    }
+
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      gap: 16px;
+    }
+
+    #empty-state.hidden {
+      display: none;
+    }
+
+    #empty-state .empty-title {
+      font-size: 32px;
+      font-weight: 600;
+      color: #ccc;
+    }
+
+    #empty-state .empty-subtitle {
+      font-size: 18px;
+      color: #666;
+    }
+
+    #empty-state .empty-divider {
+      font-size: 14px;
+      color: #555;
+      margin: 8px 0;
+    }
+
+    #empty-state .empty-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    #empty-state button,
+    #empty-state select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #empty-state button:hover,
+    #empty-state select:hover {
+      background: #555;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="toolbar">
+    <div class="group">
+      <input type="file" id="file-input" accept=".svg">
+      <select class="examples-select" title="Load example SVG">
+        <option value="">Examples...</option>
+      </select>
+    </div>
+    <div class="group">
+      <button id="zoom-out" title="Zoom out (-)">-</button>
+      <span id="zoom-level">100%</span>
+      <button id="zoom-in" title="Zoom in (+)">+</button>
+      <button id="zoom-reset" title="Reset zoom (0)">Reset</button>
+    </div>
+    <div class="group">
+      <button id="dark-mode-toggle" title="Toggle dark mode for SVG (D)">Dark Mode</button>
+      <button id="minimap-toggle" title="Toggle minimap (M)">Minimap</button>
+    </div>
+    <div class="group">
+      <input type="search" id="search-input" placeholder="Regex search...">
+      <button id="search-prev" title="Previous match (Shift+Enter)">Prev</button>
+      <span id="search-info">0 / 0</span>
+      <button id="search-next" title="Next match (Enter)">Next</button>
+    </div>
+  </div>
+
+  <div id="empty-state">
+    <div class="empty-title">SVG Viewer</div>
+    <div class="empty-subtitle">Drop an SVG file here</div>
+    <div class="empty-divider">or</div>
+    <div class="empty-actions">
+      <button id="empty-file-btn">Choose File</button>
+      <select class="examples-select">
+        <option value="">Load Example...</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="viewport" style="display: none;">
+    <div id="svg-wrapper">
+      <div id="svg-container"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 14.1.1 (20251213.1925)
+ -->
+<!-- Pages: 1 -->
+<svg width="4913pt" height="823pt"
+ viewBox="0.00 0.00 4913.00 823.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 819)">
+<polygon fill="white" stroke="none" points="-4,4 -4,-819 4908.5,-819 4908.5,4 -4,4"/>
+<!-- BP_StepOutNote_C -->
+<g id="node1" class="node">
+<title>BP_StepOutNote_C</title>
+<polygon fill="#d4ffd4" stroke="none" points="8,-763 8,-811 385.25,-811 385.25,-763 8,-763"/>
+<polygon fill="none" stroke="black" points="8,-763 8,-811 385.25,-811 385.25,-763 8,-763"/>
+<text xml:space="preserve" text-anchor="start" x="11" y="-795.7" font-family="monospace" font-size="14.00" fill="#800080">ClassExport:</text>
+<text xml:space="preserve" text-anchor="start" x="110" y="-795.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="118.25" y="-795.7" font-family="monospace" font-size="14.00" fill="#996300">BP_StepOutNote_C</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-781.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-781.7" font-family="monospace" font-size="14.00" fill="#800080">SuperStruct:</text>
+<text xml:space="preserve" text-anchor="start" x="126.5" y="-781.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="151.25" y="-781.7" font-family="monospace" font-size="14.00" fill="#996300">import /Script/Engine&#45;&gt;Actor</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-767.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-767.7" font-family="monospace" font-size="14.00" fill="#800080">Properties:</text>
+</g>
+<!-- OnCheckPlayerState__DelegateSignature -->
+<g id="node2" class="node">
+<title>OnCheckPlayerState__DelegateSignature</title>
+<polygon fill="#ffd4d4" stroke="none" points="425.75,-762.5 425.75,-810.5 885.5,-810.5 885.5,-762.5 425.75,-762.5"/>
+<polygon fill="none" stroke="black" points="425.75,-762.5 425.75,-810.5 885.5,-810.5 885.5,-762.5 425.75,-762.5"/>
+<text xml:space="preserve" text-anchor="start" x="428.75" y="-795.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="494.75" y="-795.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="503" y="-795.2" font-family="monospace" font-size="14.00" fill="#6a0080">OnCheckPlayerState__DelegateSignature</text>
+<text xml:space="preserve" text-anchor="start" x="428.75" y="-781.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="445.25" y="-781.2" font-family="monospace" font-size="14.00" fill="#996300">Bool</text>
+<text xml:space="preserve" text-anchor="start" x="478.25" y="-781.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="503" y="-781.2" font-family="monospace" font-size="14.00" fill="#006400">Sora</text>
+<text xml:space="preserve" text-anchor="start" x="428.75" y="-767.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="461.75" y="-767.2" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- OnCheckPlayerState__DelegateSignature__block_0 -->
+<g id="node3" class="node">
+<title>OnCheckPlayerState__DelegateSignature__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="409.25,-662 409.25,-718.5 902,-718.5 902,-662 409.25,-662"/>
+<polygon fill="none" stroke="black" points="409.25,-696 409.25,-718.5 902,-718.5 902,-696 409.25,-696"/>
+<text xml:space="preserve" text-anchor="start" x="412.25" y="-702.2" font-family="monospace" font-size="14.00">BP_StepOutNote_C::OnCheckPlayerState__DelegateSignature @ 0</text>
+<polygon fill="none" stroke="black" points="409.25,-662 409.25,-696 902,-696 902,-662 409.25,-662"/>
+<text xml:space="preserve" text-anchor="start" x="412.25" y="-680.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="437" y="-680.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="412.25" y="-666.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1: </text>
+<text xml:space="preserve" text-anchor="start" x="437" y="-666.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="453.5" y="-666.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- OnCheckPlayerState__DelegateSignature&#45;&gt;OnCheckPlayerState__DelegateSignature__block_0 -->
+<g id="edge1" class="edge">
+<title>OnCheckPlayerState__DelegateSignature&#45;&gt;OnCheckPlayerState__DelegateSignature__block_0:n</title>
+<path fill="none" stroke="black" d="M655.62,-758.52C655.62,-750.86 655.62,-742.29 655.62,-733.84"/>
+<polygon fill="black" stroke="black" points="659.13,-734.01 655.63,-724.01 652.13,-734.01 659.13,-734.01"/>
+</g>
+<!-- UserConstructionScript -->
+<g id="node4" class="node">
+<title>UserConstructionScript</title>
+<polygon fill="#ffd4d4" stroke="none" points="1206.25,-776.5 1206.25,-810.5 1633,-810.5 1633,-776.5 1206.25,-776.5"/>
+<polygon fill="none" stroke="black" points="1206.25,-776.5 1206.25,-810.5 1633,-810.5 1633,-776.5 1206.25,-776.5"/>
+<text xml:space="preserve" text-anchor="start" x="1209.25" y="-795.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="1275.25" y="-795.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1283.5" y="-795.2" font-family="monospace" font-size="14.00" fill="#6a0080">UserConstructionScript</text>
+<text xml:space="preserve" text-anchor="start" x="1209.25" y="-781.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1225.75" y="-781.2" font-family="monospace" font-size="14.00" fill="#996300">Object</text>
+<text xml:space="preserve" text-anchor="start" x="1275.25" y="-781.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="1300" y="-781.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_CastToSprite_ChildActor__Sprite</text>
+</g>
+<!-- UserConstructionScript__block_0 -->
+<g id="node5" class="node">
+<title>UserConstructionScript__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="925.75,-4 925.75,-732.5 1913.5,-732.5 1913.5,-4 925.75,-4"/>
+<polygon fill="none" stroke="black" points="925.75,-710 925.75,-732.5 1913.5,-732.5 1913.5,-710 925.75,-710"/>
+<text xml:space="preserve" text-anchor="start" x="1238.12" y="-716.2" font-family="monospace" font-size="14.00">BP_StepOutNote_C::UserConstructionScript @ 0</text>
+<polygon fill="none" stroke="black" points="925.75,-4 925.75,-710 1913.5,-710 1913.5,-4 925.75,-4"/>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-694.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="953.5" y="-694.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-680.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1: </text>
+<text xml:space="preserve" text-anchor="start" x="953.5" y="-680.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-680.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="1085.5" y="-680.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1093.75" y="-680.7" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/FuncLib/Func_CastToSprite&#45;&gt;Default__Func_CastToSprite_C</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-666.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">22: </text>
+<text xml:space="preserve" text-anchor="start" x="961.75" y="-666.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="978.25" y="-666.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1126.75" y="-666.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-666.7" font-family="monospace" font-size="14.00" fill="#6a0080">CastToSprite(ChildActor)</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-652.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">35: </text>
+<text xml:space="preserve" text-anchor="start" x="961.75" y="-652.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="994.75" y="-652.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1151.5" y="-652.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1159.75" y="-652.7" font-family="monospace" font-size="14.00" fill="#006400">NormalNote</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-638.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">44: </text>
+<text xml:space="preserve" text-anchor="start" x="961.75" y="-638.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="994.75" y="-638.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-624.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">45: </text>
+<text xml:space="preserve" text-anchor="start" x="961.75" y="-624.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="994.75" y="-624.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1126.75" y="-624.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-624.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_CastToSprite_ChildActor__Sprite2</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-610.7" font-family="monospace" font-size="14.00" fill="#555555">55: </text>
+<text xml:space="preserve" text-anchor="start" x="961.75" y="-610.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetObj</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-596.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">56: </text>
+<text xml:space="preserve" text-anchor="start" x="961.75" y="-596.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="978.25" y="-596.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-596.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-596.7" font-family="monospace" font-size="14.00" fill="#006400">NormalNoteSprite</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-582.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">65: </text>
+<text xml:space="preserve" text-anchor="start" x="961.75" y="-582.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="978.25" y="-582.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1110.25" y="-582.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1118.5" y="-582.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_CastToSprite_ChildActor__Sprite2</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-568.7" font-family="monospace" font-size="14.00" fill="#555555">74: </text>
+<text xml:space="preserve" text-anchor="start" x="961.75" y="-568.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-554.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">75: </text>
+<text xml:space="preserve" text-anchor="start" x="961.75" y="-554.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="978.25" y="-554.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="1093.75" y="-554.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1102" y="-554.7" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/FuncLib/Func_CastToSprite&#45;&gt;Default__Func_CastToSprite_C</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-540.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">96: </text>
+<text xml:space="preserve" text-anchor="start" x="961.75" y="-540.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="978.25" y="-540.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1126.75" y="-540.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-540.7" font-family="monospace" font-size="14.00" fill="#6a0080">CastToSprite(ChildActor)</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-526.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">109: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-526.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-526.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1159.75" y="-526.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1168" y="-526.7" font-family="monospace" font-size="14.00" fill="#006400">RareNote</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-512.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">118: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-512.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-512.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-498.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">119: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-498.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-498.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-498.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-498.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_CastToSprite_ChildActor__Sprite</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-484.7" font-family="monospace" font-size="14.00" fill="#555555">129: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-484.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetObj</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-470.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">130: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-470.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-470.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-470.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1151.5" y="-470.7" font-family="monospace" font-size="14.00" fill="#006400">RareNoteSprite</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-456.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">139: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-456.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-456.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1118.5" y="-456.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1126.75" y="-456.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_CastToSprite_ChildActor__Sprite</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-442.7" font-family="monospace" font-size="14.00" fill="#555555">148: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-442.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-428.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">149: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-428.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-428.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="1102" y="-428.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1110.25" y="-428.7" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/FuncLib/Func_CastToSprite&#45;&gt;Default__Func_CastToSprite_C</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-414.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">170: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-414.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-414.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-414.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-414.7" font-family="monospace" font-size="14.00" fill="#6a0080">CastToSprite(ChildActor)</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-400.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">183: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-400.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-400.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1159.75" y="-400.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1168" y="-400.7" font-family="monospace" font-size="14.00" fill="#006400">NormalNote</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-386.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">192: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-386.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-386.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-372.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">193: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-372.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-372.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-372.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-372.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_CastToSprite_ChildActor__Sprite2</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-358.7" font-family="monospace" font-size="14.00" fill="#555555">203: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-358.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-344.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">204: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-344.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-344.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-330.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">205: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-330.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-330.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-330.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-330.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_CastToSprite_ChildActor__Sprite2</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-316.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">226: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-316.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-316.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1159.75" y="-316.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1168" y="-316.7" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/BP_LSI_Sprite&#45;&gt;BP_LSI_Sprite_C&#45;&gt;TitleVisibility</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-302.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">235: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-302.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-302.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-302.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1151.5" y="-302.7" font-family="monospace" font-size="14.00" fill="#006400">TitleVisibility</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-288.7" font-family="monospace" font-size="14.00" fill="#555555">244: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-288.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-274.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">245: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-274.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-274.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="1102" y="-274.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1110.25" y="-274.7" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/FuncLib/Func_CastToSprite&#45;&gt;Default__Func_CastToSprite_C</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-260.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">266: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-260.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-260.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-260.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-260.7" font-family="monospace" font-size="14.00" fill="#6a0080">CastToSprite(ChildActor)</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-246.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">279: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-246.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-246.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1159.75" y="-246.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1168" y="-246.7" font-family="monospace" font-size="14.00" fill="#006400">RareNote</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-232.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">288: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-232.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-232.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-218.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">289: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-218.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-218.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-218.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-218.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_CastToSprite_ChildActor__Sprite</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-204.7" font-family="monospace" font-size="14.00" fill="#555555">299: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-204.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-190.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">300: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-190.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-190.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-176.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">301: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-176.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-176.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-176.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-176.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_CastToSprite_ChildActor__Sprite</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-162.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">322: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-162.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-162.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1159.75" y="-162.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1168" y="-162.7" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/BP_LSI_Sprite&#45;&gt;BP_LSI_Sprite_C&#45;&gt;TitleVisibility</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-148.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">331: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-148.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-148.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-148.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1151.5" y="-148.7" font-family="monospace" font-size="14.00" fill="#006400">TitleVisibility</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-134.7" font-family="monospace" font-size="14.00" fill="#555555">340: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-134.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-120.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">341: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-120.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-120.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-120.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1151.5" y="-120.7" font-family="monospace" font-size="14.00" fill="#006400">NormalNoteSprite</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-106.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">362: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-106.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-106.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-106.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-106.7" font-family="monospace" font-size="14.00" fill="#6a0080">SetAngle</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-92.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">375: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-92.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-92.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1159.75" y="-92.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1168" y="-92.7" font-family="monospace" font-size="14.00" fill="#006400">Angle</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-78.7" font-family="monospace" font-size="14.00" fill="#555555">385: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-78.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-64.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">386: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-64.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-64.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-64.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1151.5" y="-64.7" font-family="monospace" font-size="14.00" fill="#006400">RareNoteSprite</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-50.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">407: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-50.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-50.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1135" y="-50.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1143.25" y="-50.7" font-family="monospace" font-size="14.00" fill="#6a0080">SetAngle</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-36.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">420: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-36.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1003" y="-36.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1159.75" y="-36.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1168" y="-36.7" font-family="monospace" font-size="14.00" fill="#006400">Angle</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-22.7" font-family="monospace" font-size="14.00" fill="#555555">430: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-22.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="928.75" y="-8.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">431: </text>
+<text xml:space="preserve" text-anchor="start" x="970" y="-8.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="986.5" y="-8.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- UserConstructionScript&#45;&gt;UserConstructionScript__block_0 -->
+<g id="edge2" class="edge">
+<title>UserConstructionScript&#45;&gt;UserConstructionScript__block_0:n</title>
+<path fill="none" stroke="black" d="M1419.62,-772.54C1419.62,-765.19 1419.62,-756.57 1419.62,-748.01"/>
+<polygon fill="black" stroke="black" points="1423.13,-748.01 1419.63,-738.01 1416.13,-748.01 1423.13,-748.01"/>
+</g>
+<!-- CheckPlayerGetNote -->
+<g id="node6" class="node">
+<title>CheckPlayerGetNote</title>
+<polygon fill="#ffd4d4" stroke="none" points="2527.75,-776.5 2527.75,-810.5 2921.5,-810.5 2921.5,-776.5 2527.75,-776.5"/>
+<polygon fill="none" stroke="black" points="2527.75,-776.5 2527.75,-810.5 2921.5,-810.5 2921.5,-776.5 2527.75,-776.5"/>
+<text xml:space="preserve" text-anchor="start" x="2530.75" y="-795.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="2596.75" y="-795.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2605" y="-795.2" font-family="monospace" font-size="14.00" fill="#6a0080">CheckPlayerGetNote</text>
+<text xml:space="preserve" text-anchor="start" x="2530.75" y="-781.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2547.25" y="-781.2" font-family="monospace" font-size="14.00" fill="#996300">Bool</text>
+<text xml:space="preserve" text-anchor="start" x="2580.25" y="-781.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="2605" y="-781.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_NotEqual_ByteByte_ReturnValue</text>
+</g>
+<!-- CheckPlayerGetNote__block_0 -->
+<g id="node7" class="node">
+<title>CheckPlayerGetNote__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="2404,-606 2404,-732.5 3045.25,-732.5 3045.25,-606 2404,-606"/>
+<polygon fill="none" stroke="black" points="2404,-710 2404,-732.5 3045.25,-732.5 3045.25,-710 2404,-710"/>
+<text xml:space="preserve" text-anchor="start" x="2559.62" y="-716.2" font-family="monospace" font-size="14.00">BP_StepOutNote_C::CheckPlayerGetNote @ 0</text>
+<polygon fill="none" stroke="black" points="2404,-606 2404,-710 3045.25,-710 3045.25,-606 2404,-606"/>
+<text xml:space="preserve" text-anchor="start" x="2407" y="-694.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="2431.75" y="-694.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="2407" y="-680.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1: </text>
+<text xml:space="preserve" text-anchor="start" x="2431.75" y="-680.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2448.25" y="-680.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2580.25" y="-680.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2588.5" y="-680.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_NotEqual_ByteByte_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="2407" y="-666.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">10: </text>
+<text xml:space="preserve" text-anchor="start" x="2440" y="-666.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2456.5" y="-666.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="2547.25" y="-666.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2555.5" y="-666.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;NotEqual_ByteByte</text>
+<text xml:space="preserve" text-anchor="start" x="2407" y="-652.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">19: </text>
+<text xml:space="preserve" text-anchor="start" x="2440" y="-652.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2473" y="-652.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2629.75" y="-652.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2638" y="-652.7" font-family="monospace" font-size="14.00" fill="#006400">State</text>
+<text xml:space="preserve" text-anchor="start" x="2407" y="-638.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">28: </text>
+<text xml:space="preserve" text-anchor="start" x="2440" y="-638.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2473" y="-638.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ByteConst</text>
+<text xml:space="preserve" text-anchor="start" x="2572" y="-638.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2580.25" y="-638.7" font-family="monospace" font-size="14.00" fill="#0000cd">0</text>
+<text xml:space="preserve" text-anchor="start" x="2407" y="-624.7" font-family="monospace" font-size="14.00" fill="#555555">31: </text>
+<text xml:space="preserve" text-anchor="start" x="2440" y="-624.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="2539" y="-624.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2547.25" y="-624.7" font-family="monospace" font-size="14.00" fill="#555555">138</text>
+<text xml:space="preserve" text-anchor="start" x="2407" y="-610.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">36: </text>
+<text xml:space="preserve" text-anchor="start" x="2440" y="-610.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2456.5" y="-610.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2588.5" y="-610.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2596.75" y="-610.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_NotEqual_ByteByte_ReturnValue</text>
+</g>
+<!-- CheckPlayerGetNote&#45;&gt;CheckPlayerGetNote__block_0 -->
+<g id="edge3" class="edge">
+<title>CheckPlayerGetNote&#45;&gt;CheckPlayerGetNote__block_0:n</title>
+<path fill="none" stroke="black" d="M2724.62,-772.54C2724.62,-765.19 2724.62,-756.57 2724.62,-748.01"/>
+<polygon fill="black" stroke="black" points="2728.13,-748.01 2724.63,-738.01 2721.13,-748.01 2728.13,-748.01"/>
+</g>
+<!-- CheckPlayerGetNote__block_138 -->
+<g id="node8" class="node">
+<title>CheckPlayerGetNote__block_138</title>
+<polygon fill="#eeeeee" stroke="none" points="2782.38,-148 2782.38,-204.5 3134.88,-204.5 3134.88,-148 2782.38,-148"/>
+<polygon fill="none" stroke="black" points="2782.38,-182 2782.38,-204.5 3134.88,-204.5 3134.88,-182 2782.38,-182"/>
+<text xml:space="preserve" text-anchor="start" x="2785.38" y="-188.2" font-family="monospace" font-size="14.00">BP_StepOutNote_C::CheckPlayerGetNote @ 138</text>
+<polygon fill="none" stroke="black" points="2782.38,-148 2782.38,-182 3134.88,-182 3134.88,-148 2782.38,-148"/>
+<text xml:space="preserve" text-anchor="start" x="2785.38" y="-166.7" font-family="monospace" font-size="14.00" fill="#555555">138: </text>
+<text xml:space="preserve" text-anchor="start" x="2826.62" y="-166.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="2785.38" y="-152.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">139: </text>
+<text xml:space="preserve" text-anchor="start" x="2826.62" y="-152.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2843.12" y="-152.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- CheckPlayerGetNote__block_0&#45;&gt;CheckPlayerGetNote__block_138 -->
+<g id="edge4" class="edge">
+<title>CheckPlayerGetNote__block_0:e&#45;&gt;CheckPlayerGetNote__block_138:n</title>
+<path fill="none" stroke="red" d="M3053.94,-669.25C3245.39,-669.25 3245.89,-393.46 3125.62,-244.5 3080.63,-188.77 2971.91,-273.72 2959.74,-219.78"/>
+<polygon fill="none" stroke="red" points="2963.24,-219.61 2958.77,-210.01 2956.27,-220.3 2963.24,-219.61"/>
+</g>
+<!-- CheckPlayerGetNote__block_45 -->
+<g id="node9" class="node">
+<title>CheckPlayerGetNote__block_45</title>
+<polygon fill="#eeeeee" stroke="none" points="2501.5,-505.5 2501.5,-562 2845.75,-562 2845.75,-505.5 2501.5,-505.5"/>
+<polygon fill="none" stroke="black" points="2501.5,-539.5 2501.5,-562 2845.75,-562 2845.75,-539.5 2501.5,-539.5"/>
+<text xml:space="preserve" text-anchor="start" x="2504.5" y="-545.7" font-family="monospace" font-size="14.00">BP_StepOutNote_C::CheckPlayerGetNote @ 45</text>
+<polygon fill="none" stroke="black" points="2501.5,-505.5 2501.5,-539.5 2845.75,-539.5 2845.75,-505.5 2501.5,-505.5"/>
+<text xml:space="preserve" text-anchor="start" x="2504.5" y="-524.2" font-family="monospace" font-size="14.00" fill="#555555">45: </text>
+<text xml:space="preserve" text-anchor="start" x="2537.5" y="-524.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="2636.5" y="-524.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2644.75" y="-524.2" font-family="monospace" font-size="14.00" fill="#555555">94</text>
+<text xml:space="preserve" text-anchor="start" x="2504.5" y="-510.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">50: </text>
+<text xml:space="preserve" text-anchor="start" x="2537.5" y="-510.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2554" y="-510.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2710.75" y="-510.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2719" y="-510.2" font-family="monospace" font-size="14.00" fill="#006400">IsGetSora</text>
+</g>
+<!-- CheckPlayerGetNote__block_0&#45;&gt;CheckPlayerGetNote__block_45 -->
+<g id="edge5" class="edge">
+<title>CheckPlayerGetNote__block_0&#45;&gt;CheckPlayerGetNote__block_45:n</title>
+<path fill="none" stroke="green" d="M2681.15,-602.28C2678,-594.18 2675.59,-585.75 2674.42,-577.23"/>
+<polygon fill="green" stroke="green" points="2677.93,-577.24 2673.73,-567.51 2670.94,-577.73 2677.93,-577.24"/>
+</g>
+<!-- CheckPlayerGetNote__block_94 -->
+<g id="node10" class="node">
+<title>CheckPlayerGetNote__block_94</title>
+<polygon fill="#eeeeee" stroke="none" points="2680.5,-405 2680.5,-461.5 3024.75,-461.5 3024.75,-405 2680.5,-405"/>
+<polygon fill="none" stroke="black" points="2680.5,-439 2680.5,-461.5 3024.75,-461.5 3024.75,-439 2680.5,-439"/>
+<text xml:space="preserve" text-anchor="start" x="2683.5" y="-445.2" font-family="monospace" font-size="14.00">BP_StepOutNote_C::CheckPlayerGetNote @ 94</text>
+<polygon fill="none" stroke="black" points="2680.5,-405 2680.5,-439 3024.75,-439 3024.75,-405 2680.5,-405"/>
+<text xml:space="preserve" text-anchor="start" x="2683.5" y="-423.7" font-family="monospace" font-size="14.00" fill="#555555">94: </text>
+<text xml:space="preserve" text-anchor="start" x="2716.5" y="-423.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="2815.5" y="-423.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2823.75" y="-423.7" font-family="monospace" font-size="14.00" fill="#555555">138</text>
+<text xml:space="preserve" text-anchor="start" x="2683.5" y="-409.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">99: </text>
+<text xml:space="preserve" text-anchor="start" x="2716.5" y="-409.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2733" y="-409.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2889.75" y="-409.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2898" y="-409.7" font-family="monospace" font-size="14.00" fill="#006400">IsGetMickey</text>
+</g>
+<!-- CheckPlayerGetNote__block_45&#45;&gt;CheckPlayerGetNote__block_94 -->
+<g id="edge6" class="edge">
+<title>CheckPlayerGetNote__block_45:e&#45;&gt;CheckPlayerGetNote__block_94:n</title>
+<path fill="none" stroke="red" d="M2854.58,-533.75C2881.25,-533.75 2859.53,-504.47 2853.88,-476.78"/>
+<polygon fill="none" stroke="red" points="2857.37,-476.56 2852.79,-467 2850.42,-477.33 2857.37,-476.56"/>
+</g>
+<!-- CheckPlayerGetNote__block_59 -->
+<g id="node11" class="node">
+<title>CheckPlayerGetNote__block_59</title>
+<polygon fill="#eeeeee" stroke="none" points="1937.38,-248.5 1937.38,-361 2487.88,-361 2487.88,-248.5 1937.38,-248.5"/>
+<polygon fill="none" stroke="black" points="1937.38,-338.5 1937.38,-361 2487.88,-361 2487.88,-338.5 1937.38,-338.5"/>
+<text xml:space="preserve" text-anchor="start" x="2043.5" y="-344.7" font-family="monospace" font-size="14.00">BP_StepOutNote_C::CheckPlayerGetNote @ 59</text>
+<polygon fill="none" stroke="black" points="1937.38,-248.5 1937.38,-338.5 2487.88,-338.5 2487.88,-248.5 1937.38,-248.5"/>
+<text xml:space="preserve" text-anchor="start" x="1940.38" y="-323.2" font-family="monospace" font-size="14.00" fill="#555555">59: </text>
+<text xml:space="preserve" text-anchor="start" x="1973.38" y="-323.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMulticastDelegate</text>
+<text xml:space="preserve" text-anchor="start" x="2171.38" y="-323.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2179.62" y="-323.2" font-family="monospace" font-size="14.00" fill="#6a0080">OnCheckPlayerState__DelegateSignature</text>
+<text xml:space="preserve" text-anchor="start" x="1940.38" y="-309.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">68: </text>
+<text xml:space="preserve" text-anchor="start" x="1973.38" y="-309.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1989.88" y="-309.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2146.62" y="-309.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2154.88" y="-309.2" font-family="monospace" font-size="14.00" fill="#006400">OnCheckPlayerState</text>
+<text xml:space="preserve" text-anchor="start" x="1940.38" y="-295.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">77: </text>
+<text xml:space="preserve" text-anchor="start" x="1973.38" y="-295.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1989.88" y="-295.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_True</text>
+<text xml:space="preserve" text-anchor="start" x="1940.38" y="-281.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">78: </text>
+<text xml:space="preserve" text-anchor="start" x="1973.38" y="-281.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1989.88" y="-281.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="1940.38" y="-267.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">79: </text>
+<text xml:space="preserve" text-anchor="start" x="1973.38" y="-267.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1989.88" y="-267.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2146.62" y="-267.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2154.88" y="-267.2" font-family="monospace" font-size="14.00" fill="#006400">State</text>
+<text xml:space="preserve" text-anchor="start" x="1940.38" y="-253.2" font-family="monospace" font-size="14.00" fill="#555555">89: </text>
+<text xml:space="preserve" text-anchor="start" x="1973.38" y="-253.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="2031.12" y="-253.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2039.38" y="-253.2" font-family="monospace" font-size="14.00" fill="#555555">138</text>
+</g>
+<!-- CheckPlayerGetNote__block_45&#45;&gt;CheckPlayerGetNote__block_59 -->
+<g id="edge7" class="edge">
+<title>CheckPlayerGetNote__block_45&#45;&gt;CheckPlayerGetNote__block_59:n</title>
+<path fill="none" stroke="green" d="M2494.4,-501.53C2372.73,-475.38 2230.98,-433.16 2214.26,-376.2"/>
+<polygon fill="green" stroke="green" points="2217.75,-375.89 2212.84,-366.5 2210.83,-376.9 2217.75,-375.89"/>
+</g>
+<!-- CheckPlayerGetNote__block_94&#45;&gt;CheckPlayerGetNote__block_138 -->
+<g id="edge8" class="edge">
+<title>CheckPlayerGetNote__block_94:e&#45;&gt;CheckPlayerGetNote__block_138:n</title>
+<path fill="none" stroke="red" d="M3033.58,-433.25C3122.17,-433.25 3151.85,-314.55 3097.62,-244.5 3061.23,-197.48 2972,-262.22 2959.97,-219.68"/>
+<polygon fill="none" stroke="red" points="2963.48,-219.51 2958.81,-210 2956.53,-220.35 2963.48,-219.51"/>
+</g>
+<!-- CheckPlayerGetNote__block_108 -->
+<g id="node12" class="node">
+<title>CheckPlayerGetNote__block_108</title>
+<polygon fill="#eeeeee" stroke="none" points="2522.25,-255.5 2522.25,-354 3081,-354 3081,-255.5 2522.25,-255.5"/>
+<polygon fill="none" stroke="black" points="2522.25,-331.5 2522.25,-354 3081,-354 3081,-331.5 2522.25,-331.5"/>
+<text xml:space="preserve" text-anchor="start" x="2628.38" y="-337.7" font-family="monospace" font-size="14.00">BP_StepOutNote_C::CheckPlayerGetNote @ 108</text>
+<polygon fill="none" stroke="black" points="2522.25,-255.5 2522.25,-331.5 3081,-331.5 3081,-255.5 2522.25,-255.5"/>
+<text xml:space="preserve" text-anchor="start" x="2525.25" y="-316.2" font-family="monospace" font-size="14.00" fill="#555555">108: </text>
+<text xml:space="preserve" text-anchor="start" x="2566.5" y="-316.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMulticastDelegate</text>
+<text xml:space="preserve" text-anchor="start" x="2764.5" y="-316.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2772.75" y="-316.2" font-family="monospace" font-size="14.00" fill="#6a0080">OnCheckPlayerState__DelegateSignature</text>
+<text xml:space="preserve" text-anchor="start" x="2525.25" y="-302.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">117: </text>
+<text xml:space="preserve" text-anchor="start" x="2566.5" y="-302.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2583" y="-302.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2739.75" y="-302.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2748" y="-302.2" font-family="monospace" font-size="14.00" fill="#006400">OnCheckPlayerState</text>
+<text xml:space="preserve" text-anchor="start" x="2525.25" y="-288.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">126: </text>
+<text xml:space="preserve" text-anchor="start" x="2566.5" y="-288.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2583" y="-288.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="2525.25" y="-274.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">127: </text>
+<text xml:space="preserve" text-anchor="start" x="2566.5" y="-274.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2583" y="-274.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Self</text>
+<text xml:space="preserve" text-anchor="start" x="2525.25" y="-260.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">128: </text>
+<text xml:space="preserve" text-anchor="start" x="2566.5" y="-260.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="2583" y="-260.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="2739.75" y="-260.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="2748" y="-260.2" font-family="monospace" font-size="14.00" fill="#006400">State</text>
+</g>
+<!-- CheckPlayerGetNote__block_94&#45;&gt;CheckPlayerGetNote__block_108 -->
+<g id="edge9" class="edge">
+<title>CheckPlayerGetNote__block_94&#45;&gt;CheckPlayerGetNote__block_108:n</title>
+<path fill="none" stroke="green" d="M2818.89,-401C2811.7,-391.9 2805.49,-381.31 2802.91,-369.97"/>
+<polygon fill="green" stroke="green" points="2806.43,-369.92 2801.8,-360.39 2799.47,-370.73 2806.43,-369.92"/>
+</g>
+<!-- CheckPlayerGetNote__block_59&#45;&gt;CheckPlayerGetNote__block_138 -->
+<g id="edge10" class="edge">
+<title>CheckPlayerGetNote__block_59&#45;&gt;CheckPlayerGetNote__block_138:n</title>
+<path fill="none" stroke="black" d="M2495.55,-245.95C2498.92,-245.45 2502.28,-244.97 2505.62,-244.5 2552.11,-237.98 2903.7,-256.11 2952.91,-218.12"/>
+<polygon fill="black" stroke="black" points="2955.75,-220.19 2957.85,-209.8 2949.74,-216.61 2955.75,-220.19"/>
+</g>
+<!-- CheckPlayerGetNote__block_108&#45;&gt;CheckPlayerGetNote__block_138 -->
+<g id="edge11" class="edge">
+<title>CheckPlayerGetNote__block_108&#45;&gt;CheckPlayerGetNote__block_138:n</title>
+<path fill="none" stroke="black" d="M2940.62,-251.58C2949.14,-242.55 2955.25,-232.02 2957.58,-219.74"/>
+<polygon fill="black" stroke="black" points="2961.05,-220.29 2958.49,-210.01 2954.08,-219.64 2961.05,-220.29"/>
+</g>
+<!-- OnDraw -->
+<g id="node13" class="node">
+<title>OnDraw</title>
+<polygon fill="#ffd4d4" stroke="none" points="3750,-776.5 3750,-810.5 4061.25,-810.5 4061.25,-776.5 3750,-776.5"/>
+<polygon fill="none" stroke="black" points="3750,-776.5 3750,-810.5 4061.25,-810.5 4061.25,-776.5 3750,-776.5"/>
+<text xml:space="preserve" text-anchor="start" x="3753" y="-795.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="3819" y="-795.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3827.25" y="-795.2" font-family="monospace" font-size="14.00" fill="#6a0080">OnDraw</text>
+<text xml:space="preserve" text-anchor="start" x="3753" y="-781.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3769.5" y="-781.2" font-family="monospace" font-size="14.00" fill="#996300">Bool</text>
+<text xml:space="preserve" text-anchor="start" x="3802.5" y="-781.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="3827.25" y="-781.2" font-family="monospace" font-size="14.00" fill="#006400">K2Node_SwitchEnum_CmpSuccess</text>
+</g>
+<!-- OnDraw__block_0 -->
+<g id="node14" class="node">
+<title>OnDraw__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="3585,-606 3585,-732.5 4226.25,-732.5 4226.25,-606 3585,-606"/>
+<polygon fill="none" stroke="black" points="3585,-710 3585,-732.5 4226.25,-732.5 4226.25,-710 3585,-710"/>
+<text xml:space="preserve" text-anchor="start" x="3790.12" y="-716.2" font-family="monospace" font-size="14.00">BP_StepOutNote_C::OnDraw @ 0</text>
+<polygon fill="none" stroke="black" points="3585,-606 3585,-710 4226.25,-710 4226.25,-606 3585,-606"/>
+<text xml:space="preserve" text-anchor="start" x="3588" y="-694.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="3612.75" y="-694.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="3588" y="-680.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">1: </text>
+<text xml:space="preserve" text-anchor="start" x="3612.75" y="-680.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3629.25" y="-680.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3761.25" y="-680.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3769.5" y="-680.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_SwitchEnum_CmpSuccess</text>
+<text xml:space="preserve" text-anchor="start" x="3588" y="-666.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">10: </text>
+<text xml:space="preserve" text-anchor="start" x="3621" y="-666.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3637.5" y="-666.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="3728.25" y="-666.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3736.5" y="-666.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;NotEqual_ByteByte</text>
+<text xml:space="preserve" text-anchor="start" x="3588" y="-652.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">19: </text>
+<text xml:space="preserve" text-anchor="start" x="3621" y="-652.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3654" y="-652.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3810.75" y="-652.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3819" y="-652.7" font-family="monospace" font-size="14.00" fill="#006400">State</text>
+<text xml:space="preserve" text-anchor="start" x="3588" y="-638.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">28: </text>
+<text xml:space="preserve" text-anchor="start" x="3621" y="-638.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3654" y="-638.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ByteConst</text>
+<text xml:space="preserve" text-anchor="start" x="3753" y="-638.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3761.25" y="-638.7" font-family="monospace" font-size="14.00" fill="#0000cd">0</text>
+<text xml:space="preserve" text-anchor="start" x="3588" y="-624.7" font-family="monospace" font-size="14.00" fill="#555555">31: </text>
+<text xml:space="preserve" text-anchor="start" x="3621" y="-624.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="3720" y="-624.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3728.25" y="-624.7" font-family="monospace" font-size="14.00" fill="#555555">253</text>
+<text xml:space="preserve" text-anchor="start" x="3588" y="-610.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">36: </text>
+<text xml:space="preserve" text-anchor="start" x="3621" y="-610.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3637.5" y="-610.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3769.5" y="-610.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3777.75" y="-610.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_SwitchEnum_CmpSuccess</text>
+</g>
+<!-- OnDraw&#45;&gt;OnDraw__block_0 -->
+<g id="edge12" class="edge">
+<title>OnDraw&#45;&gt;OnDraw__block_0:n</title>
+<path fill="none" stroke="black" d="M3905.62,-772.54C3905.62,-765.19 3905.62,-756.57 3905.62,-748.01"/>
+<polygon fill="black" stroke="black" points="3909.13,-748.01 3905.63,-738.01 3902.13,-748.01 3909.13,-748.01"/>
+</g>
+<!-- OnDraw__block_253 -->
+<g id="node15" class="node">
+<title>OnDraw__block_253</title>
+<polygon fill="#eeeeee" stroke="none" points="3904.88,-8 3904.88,-64.5 4158.38,-64.5 4158.38,-8 3904.88,-8"/>
+<polygon fill="none" stroke="black" points="3904.88,-42 3904.88,-64.5 4158.38,-64.5 4158.38,-42 3904.88,-42"/>
+<text xml:space="preserve" text-anchor="start" x="3907.88" y="-48.2" font-family="monospace" font-size="14.00">BP_StepOutNote_C::OnDraw @ 253</text>
+<polygon fill="none" stroke="black" points="3904.88,-8 3904.88,-42 4158.38,-42 4158.38,-8 3904.88,-8"/>
+<text xml:space="preserve" text-anchor="start" x="3907.88" y="-26.7" font-family="monospace" font-size="14.00" fill="#555555">253: </text>
+<text xml:space="preserve" text-anchor="start" x="3949.12" y="-26.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="3907.88" y="-12.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">254: </text>
+<text xml:space="preserve" text-anchor="start" x="3949.12" y="-12.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3965.62" y="-12.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- OnDraw__block_0&#45;&gt;OnDraw__block_253 -->
+<g id="edge13" class="edge">
+<title>OnDraw__block_0:e&#45;&gt;OnDraw__block_253:n</title>
+<path fill="none" stroke="red" d="M4234.94,-669.25C4420.52,-669.25 4398.4,-430.41 4322.62,-261 4280.02,-165.75 4238.42,-155.92 4147.62,-104.5 4104.51,-80.08 4042.8,-115.65 4032.97,-79.89"/>
+<polygon fill="none" stroke="red" points="4036.45,-79.52 4031.8,-70 4029.5,-80.34 4036.45,-79.52"/>
+</g>
+<!-- OnDraw__block_45 -->
+<g id="node16" class="node">
+<title>OnDraw__block_45</title>
+<polygon fill="#eeeeee" stroke="none" points="3477,-435.5 3477,-562 4118.25,-562 4118.25,-435.5 3477,-435.5"/>
+<polygon fill="none" stroke="black" points="3477,-539.5 3477,-562 4118.25,-562 4118.25,-539.5 3477,-539.5"/>
+<text xml:space="preserve" text-anchor="start" x="3678" y="-545.7" font-family="monospace" font-size="14.00">BP_StepOutNote_C::OnDraw @ 45</text>
+<polygon fill="none" stroke="black" points="3477,-435.5 3477,-539.5 4118.25,-539.5 4118.25,-435.5 3477,-435.5"/>
+<text xml:space="preserve" text-anchor="start" x="3480" y="-524.2" font-family="monospace" font-size="14.00" fill="#555555">45: </text>
+<text xml:space="preserve" text-anchor="start" x="3513" y="-524.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="3480" y="-510.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">46: </text>
+<text xml:space="preserve" text-anchor="start" x="3513" y="-510.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3529.5" y="-510.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3661.5" y="-510.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3669.75" y="-510.2" font-family="monospace" font-size="14.00" fill="#006400">K2Node_SwitchEnum_CmpSuccess</text>
+<text xml:space="preserve" text-anchor="start" x="3480" y="-496.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">55: </text>
+<text xml:space="preserve" text-anchor="start" x="3513" y="-496.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3529.5" y="-496.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="3620.25" y="-496.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3628.5" y="-496.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;NotEqual_ByteByte</text>
+<text xml:space="preserve" text-anchor="start" x="3480" y="-482.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">64: </text>
+<text xml:space="preserve" text-anchor="start" x="3513" y="-482.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3546" y="-482.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3702.75" y="-482.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3711" y="-482.2" font-family="monospace" font-size="14.00" fill="#006400">State</text>
+<text xml:space="preserve" text-anchor="start" x="3480" y="-468.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">73: </text>
+<text xml:space="preserve" text-anchor="start" x="3513" y="-468.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3546" y="-468.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ByteConst</text>
+<text xml:space="preserve" text-anchor="start" x="3645" y="-468.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3653.25" y="-468.2" font-family="monospace" font-size="14.00" fill="#0000cd">1</text>
+<text xml:space="preserve" text-anchor="start" x="3480" y="-454.2" font-family="monospace" font-size="14.00" fill="#555555">76: </text>
+<text xml:space="preserve" text-anchor="start" x="3513" y="-454.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="3612" y="-454.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3620.25" y="-454.2" font-family="monospace" font-size="14.00" fill="#555555">140</text>
+<text xml:space="preserve" text-anchor="start" x="3480" y="-440.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">81: </text>
+<text xml:space="preserve" text-anchor="start" x="3513" y="-440.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3529.5" y="-440.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3661.5" y="-440.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3669.75" y="-440.2" font-family="monospace" font-size="14.00" fill="#006400">K2Node_SwitchEnum_CmpSuccess</text>
+</g>
+<!-- OnDraw__block_0&#45;&gt;OnDraw__block_45 -->
+<g id="edge14" class="edge">
+<title>OnDraw__block_0&#45;&gt;OnDraw__block_45:n</title>
+<path fill="none" stroke="green" d="M3808.98,-602.21C3804.01,-594.51 3800.37,-586.18 3798.68,-577.23"/>
+<polygon fill="green" stroke="green" points="3802.19,-577.14 3797.77,-567.51 3795.22,-577.79 3802.19,-577.14"/>
+</g>
+<!-- OnDraw__block_140 -->
+<g id="node17" class="node">
+<title>OnDraw__block_140</title>
+<polygon fill="#eeeeee" stroke="none" points="3945.25,-286 3945.25,-370.5 4306,-370.5 4306,-286 3945.25,-286"/>
+<polygon fill="none" stroke="black" points="3945.25,-348 3945.25,-370.5 4306,-370.5 4306,-348 3945.25,-348"/>
+<text xml:space="preserve" text-anchor="start" x="4001.88" y="-354.2" font-family="monospace" font-size="14.00">BP_StepOutNote_C::OnDraw @ 140</text>
+<polygon fill="none" stroke="black" points="3945.25,-286 3945.25,-348 4306,-348 4306,-286 3945.25,-286"/>
+<text xml:space="preserve" text-anchor="start" x="3948.25" y="-332.7" font-family="monospace" font-size="14.00" fill="#555555">140: </text>
+<text xml:space="preserve" text-anchor="start" x="3989.5" y="-332.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="3948.25" y="-318.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">141: </text>
+<text xml:space="preserve" text-anchor="start" x="3989.5" y="-318.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4006" y="-318.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4162.75" y="-318.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4171" y="-318.7" font-family="monospace" font-size="14.00" fill="#006400">NormalNoteSprite</text>
+<text xml:space="preserve" text-anchor="start" x="3948.25" y="-304.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">162: </text>
+<text xml:space="preserve" text-anchor="start" x="3989.5" y="-304.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4006" y="-304.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="4154.5" y="-304.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4162.75" y="-304.7" font-family="monospace" font-size="14.00" fill="#6a0080">Draw</text>
+<text xml:space="preserve" text-anchor="start" x="3948.25" y="-290.7" font-family="monospace" font-size="14.00" fill="#555555">176: </text>
+<text xml:space="preserve" text-anchor="start" x="3989.5" y="-290.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="4047.25" y="-290.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4055.5" y="-290.7" font-family="monospace" font-size="14.00" fill="#555555">253</text>
+</g>
+<!-- OnDraw__block_45&#45;&gt;OnDraw__block_140 -->
+<g id="edge15" class="edge">
+<title>OnDraw__block_45:e&#45;&gt;OnDraw__block_140:n</title>
+<path fill="none" stroke="red" d="M4126.94,-498.75C4178.08,-498.75 4132.79,-439.2 4126.36,-386.67"/>
+<polygon fill="none" stroke="red" points="4129.86,-386.52 4125.72,-376.76 4122.87,-386.96 4129.86,-386.52"/>
+</g>
+<!-- OnDraw__block_90 -->
+<g id="node18" class="node">
+<title>OnDraw__block_90</title>
+<polygon fill="#eeeeee" stroke="none" points="3261.88,-265 3261.88,-391.5 3911.38,-391.5 3911.38,-265 3261.88,-265"/>
+<polygon fill="none" stroke="black" points="3261.88,-369 3261.88,-391.5 3911.38,-391.5 3911.38,-369 3261.88,-369"/>
+<text xml:space="preserve" text-anchor="start" x="3467" y="-375.2" font-family="monospace" font-size="14.00">BP_StepOutNote_C::OnDraw @ 90</text>
+<polygon fill="none" stroke="black" points="3261.88,-265 3261.88,-369 3911.38,-369 3911.38,-265 3261.88,-265"/>
+<text xml:space="preserve" text-anchor="start" x="3264.88" y="-353.7" font-family="monospace" font-size="14.00" fill="#555555">90: </text>
+<text xml:space="preserve" text-anchor="start" x="3297.88" y="-353.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="3264.88" y="-339.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">91: </text>
+<text xml:space="preserve" text-anchor="start" x="3297.88" y="-339.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3314.38" y="-339.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3446.38" y="-339.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3454.62" y="-339.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_SwitchEnum_CmpSuccess</text>
+<text xml:space="preserve" text-anchor="start" x="3264.88" y="-325.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">100: </text>
+<text xml:space="preserve" text-anchor="start" x="3306.12" y="-325.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3322.62" y="-325.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="3413.38" y="-325.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3421.62" y="-325.7" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;NotEqual_ByteByte</text>
+<text xml:space="preserve" text-anchor="start" x="3264.88" y="-311.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">109: </text>
+<text xml:space="preserve" text-anchor="start" x="3306.12" y="-311.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3339.12" y="-311.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3495.88" y="-311.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3504.12" y="-311.7" font-family="monospace" font-size="14.00" fill="#006400">State</text>
+<text xml:space="preserve" text-anchor="start" x="3264.88" y="-297.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">118: </text>
+<text xml:space="preserve" text-anchor="start" x="3306.12" y="-297.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3339.12" y="-297.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ByteConst</text>
+<text xml:space="preserve" text-anchor="start" x="3438.12" y="-297.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3446.38" y="-297.7" font-family="monospace" font-size="14.00" fill="#0000cd">2</text>
+<text xml:space="preserve" text-anchor="start" x="3264.88" y="-283.7" font-family="monospace" font-size="14.00" fill="#555555">121: </text>
+<text xml:space="preserve" text-anchor="start" x="3306.12" y="-283.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="3405.12" y="-283.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3413.38" y="-283.7" font-family="monospace" font-size="14.00" fill="#555555">181</text>
+<text xml:space="preserve" text-anchor="start" x="3264.88" y="-269.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">126: </text>
+<text xml:space="preserve" text-anchor="start" x="3306.12" y="-269.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3322.62" y="-269.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3454.62" y="-269.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3462.88" y="-269.7" font-family="monospace" font-size="14.00" fill="#006400">K2Node_SwitchEnum_CmpSuccess</text>
+</g>
+<!-- OnDraw__block_45&#45;&gt;OnDraw__block_90 -->
+<g id="edge16" class="edge">
+<title>OnDraw__block_45&#45;&gt;OnDraw__block_90:n</title>
+<path fill="none" stroke="green" d="M3596.8,-431.66C3592.16,-424.22 3588.93,-415.94 3587.49,-406.74"/>
+<polygon fill="green" stroke="green" points="3590.99,-406.71 3586.74,-397.01 3584.02,-407.25 3590.99,-406.71"/>
+</g>
+<!-- OnDraw__block_140&#45;&gt;OnDraw__block_253 -->
+<g id="edge17" class="edge">
+<title>OnDraw__block_140&#45;&gt;OnDraw__block_253:n</title>
+<path fill="none" stroke="black" d="M4138.02,-282.29C4148.54,-233.9 4156.79,-156.86 4120.62,-104.5 4099.03,-73.23 4045.3,-102.95 4033.81,-79.68"/>
+<polygon fill="black" stroke="black" points="4037.27,-79.13 4031.92,-69.99 4030.4,-80.47 4037.27,-79.13"/>
+</g>
+<!-- OnDraw__block_181 -->
+<g id="node19" class="node">
+<title>OnDraw__block_181</title>
+<polygon fill="#eeeeee" stroke="none" points="3743.25,-108.5 3743.25,-221 4104,-221 4104,-108.5 3743.25,-108.5"/>
+<polygon fill="none" stroke="black" points="3743.25,-198.5 3743.25,-221 4104,-221 4104,-198.5 3743.25,-198.5"/>
+<text xml:space="preserve" text-anchor="start" x="3799.88" y="-204.7" font-family="monospace" font-size="14.00">BP_StepOutNote_C::OnDraw @ 181</text>
+<polygon fill="none" stroke="black" points="3743.25,-108.5 3743.25,-198.5 4104,-198.5 4104,-108.5 3743.25,-108.5"/>
+<text xml:space="preserve" text-anchor="start" x="3746.25" y="-183.2" font-family="monospace" font-size="14.00" fill="#555555">181: </text>
+<text xml:space="preserve" text-anchor="start" x="3787.5" y="-183.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="3746.25" y="-169.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">182: </text>
+<text xml:space="preserve" text-anchor="start" x="3787.5" y="-169.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3804" y="-169.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3960.75" y="-169.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3969" y="-169.2" font-family="monospace" font-size="14.00" fill="#006400">NormalNoteSprite</text>
+<text xml:space="preserve" text-anchor="start" x="3746.25" y="-155.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">203: </text>
+<text xml:space="preserve" text-anchor="start" x="3787.5" y="-155.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3804" y="-155.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3952.5" y="-155.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3960.75" y="-155.2" font-family="monospace" font-size="14.00" fill="#6a0080">Draw</text>
+<text xml:space="preserve" text-anchor="start" x="3746.25" y="-141.2" font-family="monospace" font-size="14.00" fill="#555555">217: </text>
+<text xml:space="preserve" text-anchor="start" x="3787.5" y="-141.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="3746.25" y="-127.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">218: </text>
+<text xml:space="preserve" text-anchor="start" x="3787.5" y="-127.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3804" y="-127.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="3960.75" y="-127.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3969" y="-127.2" font-family="monospace" font-size="14.00" fill="#006400">RareNoteSprite</text>
+<text xml:space="preserve" text-anchor="start" x="3746.25" y="-113.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">239: </text>
+<text xml:space="preserve" text-anchor="start" x="3787.5" y="-113.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="3804" y="-113.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="3952.5" y="-113.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3960.75" y="-113.2" font-family="monospace" font-size="14.00" fill="#6a0080">Draw</text>
+</g>
+<!-- OnDraw__block_90&#45;&gt;OnDraw__block_181 -->
+<g id="edge18" class="edge">
+<title>OnDraw__block_90:e&#45;&gt;OnDraw__block_181:n</title>
+<path fill="none" stroke="red" d="M3920.06,-328.25C3929.65,-328.25 3925.7,-264.12 3924.14,-236.37"/>
+<polygon fill="none" stroke="red" points="3927.65,-236.34 3923.69,-226.51 3920.65,-236.66 3927.65,-236.34"/>
+</g>
+<!-- OnDraw__block_135 -->
+<g id="node20" class="node">
+<title>OnDraw__block_135</title>
+<polygon fill="#eeeeee" stroke="none" points="3455.88,-142.25 3455.88,-187.25 3709.38,-187.25 3709.38,-142.25 3455.88,-142.25"/>
+<polygon fill="none" stroke="black" points="3455.88,-164.75 3455.88,-187.25 3709.38,-187.25 3709.38,-164.75 3455.88,-164.75"/>
+<text xml:space="preserve" text-anchor="start" x="3458.88" y="-170.95" font-family="monospace" font-size="14.00">BP_StepOutNote_C::OnDraw @ 135</text>
+<polygon fill="none" stroke="black" points="3455.88,-142.25 3455.88,-164.75 3709.38,-164.75 3709.38,-142.25 3455.88,-142.25"/>
+<text xml:space="preserve" text-anchor="start" x="3458.88" y="-149.45" font-family="monospace" font-size="14.00" fill="#555555">135: </text>
+<text xml:space="preserve" text-anchor="start" x="3500.12" y="-149.45" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="3557.88" y="-149.45" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="3566.12" y="-149.45" font-family="monospace" font-size="14.00" fill="#555555">253</text>
+</g>
+<!-- OnDraw__block_90&#45;&gt;OnDraw__block_135 -->
+<g id="edge19" class="edge">
+<title>OnDraw__block_90&#45;&gt;OnDraw__block_135:n</title>
+<path fill="none" stroke="green" d="M3583.89,-261.28C3583.31,-242.98 3582.82,-222.85 3582.67,-203.62"/>
+<polygon fill="green" stroke="green" points="3586.17,-203.61 3582.63,-193.63 3579.17,-203.64 3586.17,-203.61"/>
+</g>
+<!-- OnDraw__block_181&#45;&gt;OnDraw__block_253 -->
+<g id="edge20" class="edge">
+<title>OnDraw__block_181&#45;&gt;OnDraw__block_253:n</title>
+<path fill="none" stroke="black" d="M4019.24,-104.64C4024.63,-97.11 4028.61,-88.84 4030.47,-79.84"/>
+<polygon fill="black" stroke="black" points="4033.94,-80.31 4031.47,-70.01 4026.98,-79.6 4033.94,-80.31"/>
+</g>
+<!-- OnDraw__block_135&#45;&gt;OnDraw__block_253 -->
+<g id="edge21" class="edge">
+<title>OnDraw__block_135&#45;&gt;OnDraw__block_253:n</title>
+<path fill="none" stroke="black" d="M3634.78,-138.25C3661.62,-126.18 3695.22,-112.65 3726.62,-104.5 3756.43,-96.77 3980.78,-101.46 4024.32,-77.38"/>
+<polygon fill="black" stroke="black" points="4027.01,-79.62 4030.66,-69.67 4021.61,-75.17 4027.01,-79.62"/>
+</g>
+<!-- SetNotes -->
+<g id="node21" class="node">
+<title>SetNotes</title>
+<polygon fill="#ffd4d4" stroke="none" points="4436.75,-762.5 4436.75,-810.5 4896.5,-810.5 4896.5,-762.5 4436.75,-762.5"/>
+<polygon fill="none" stroke="black" points="4436.75,-762.5 4436.75,-810.5 4896.5,-810.5 4896.5,-762.5 4436.75,-762.5"/>
+<text xml:space="preserve" text-anchor="start" x="4439.75" y="-795.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="4505.75" y="-795.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4514" y="-795.2" font-family="monospace" font-size="14.00" fill="#6a0080">SetNotes</text>
+<text xml:space="preserve" text-anchor="start" x="4439.75" y="-781.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4456.25" y="-781.2" font-family="monospace" font-size="14.00" fill="#996300">Byte</text>
+<text xml:space="preserve" text-anchor="start" x="4489.25" y="-781.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="4514" y="-781.2" font-family="monospace" font-size="14.00" fill="#006400">State</text>
+<text xml:space="preserve" text-anchor="start" x="4439.75" y="-767.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4472.75" y="-767.2" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm</text>
+</g>
+<!-- SetNotes__block_0 -->
+<g id="node22" class="node">
+<title>SetNotes__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="4519.25,-578 4519.25,-718.5 4814,-718.5 4814,-578 4519.25,-578"/>
+<polygon fill="none" stroke="black" points="4519.25,-696 4519.25,-718.5 4814,-718.5 4814,-696 4519.25,-696"/>
+<text xml:space="preserve" text-anchor="start" x="4542.88" y="-702.2" font-family="monospace" font-size="14.00">BP_StepOutNote_C::SetNotes @ 0</text>
+<polygon fill="none" stroke="black" points="4519.25,-578 4519.25,-696 4814,-696 4814,-578 4519.25,-578"/>
+<text xml:space="preserve" text-anchor="start" x="4522.25" y="-680.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="4547" y="-680.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="4522.25" y="-666.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">9: </text>
+<text xml:space="preserve" text-anchor="start" x="4547" y="-666.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4563.5" y="-666.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4720.25" y="-666.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4728.5" y="-666.7" font-family="monospace" font-size="14.00" fill="#006400">State</text>
+<text xml:space="preserve" text-anchor="start" x="4522.25" y="-652.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">18: </text>
+<text xml:space="preserve" text-anchor="start" x="4555.25" y="-652.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4571.75" y="-652.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4703.75" y="-652.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4712" y="-652.7" font-family="monospace" font-size="14.00" fill="#006400">State</text>
+<text xml:space="preserve" text-anchor="start" x="4522.25" y="-638.7" font-family="monospace" font-size="14.00" fill="#555555">27: </text>
+<text xml:space="preserve" text-anchor="start" x="4555.25" y="-638.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="4522.25" y="-624.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">36: </text>
+<text xml:space="preserve" text-anchor="start" x="4555.25" y="-624.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4571.75" y="-624.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_InstanceVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4728.5" y="-624.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4736.75" y="-624.7" font-family="monospace" font-size="14.00" fill="#006400">DataIndex</text>
+<text xml:space="preserve" text-anchor="start" x="4522.25" y="-610.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">45: </text>
+<text xml:space="preserve" text-anchor="start" x="4555.25" y="-610.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4571.75" y="-610.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="4703.75" y="-610.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="4712" y="-610.7" font-family="monospace" font-size="14.00" fill="#006400">Index</text>
+<text xml:space="preserve" text-anchor="start" x="4522.25" y="-596.7" font-family="monospace" font-size="14.00" fill="#555555">54: </text>
+<text xml:space="preserve" text-anchor="start" x="4555.25" y="-596.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="4522.25" y="-582.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">55: </text>
+<text xml:space="preserve" text-anchor="start" x="4555.25" y="-582.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="4571.75" y="-582.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- SetNotes&#45;&gt;SetNotes__block_0 -->
+<g id="edge22" class="edge">
+<title>SetNotes&#45;&gt;SetNotes__block_0:n</title>
+<path fill="none" stroke="black" d="M4666.62,-758.52C4666.62,-750.86 4666.62,-742.29 4666.62,-733.84"/>
+<polygon fill="black" stroke="black" points="4670.13,-734.01 4666.63,-724.01 4663.13,-734.01 4670.13,-734.01"/>
+</g>
+</g>
+</svg>
+</div>
+    </div>
+  </div>
+
+  <div id="minimap">
+    <div id="minimap-content">
+      <canvas id="minimap-canvas"></canvas>
+      <div id="minimap-viewport"></div>
+    </div>
+  </div>
+
+  <div id="hint">
+    <kbd>Wheel</kbd> zoom &nbsp;
+    <kbd>Drag</kbd> pan
+  </div>
+
+  <div id="drop-overlay">Drop SVG file here</div>
+
+  <script>
+    const fileInput = document.getElementById('file-input');
+    const viewport = document.getElementById('viewport');
+    const svgWrapper = document.getElementById('svg-wrapper');
+    const svgContainer = document.getElementById('svg-container');
+    const zoomLevelEl = document.getElementById('zoom-level');
+    const searchInput = document.getElementById('search-input');
+    const searchInfo = document.getElementById('search-info');
+    const emptyState = document.getElementById('empty-state');
+    const dropOverlay = document.getElementById('drop-overlay');
+    const darkModeToggle = document.getElementById('dark-mode-toggle');
+    const minimapToggle = document.getElementById('minimap-toggle');
+    const minimap = document.getElementById('minimap');
+    const minimapContent = document.getElementById('minimap-content');
+    const minimapCanvas = document.getElementById('minimap-canvas');
+    const minimapViewport = document.getElementById('minimap-viewport');
+
+    let scale = 1;
+    let darkMode = false;
+    let minimapVisible = true;
+    let svgElement = null;
+    let svgWidth = 0;
+    let svgHeight = 0;
+    let minimapImageData = null; // Cached rasterized SVG
+
+    // Panning state
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let scrollStartX = 0;
+    let scrollStartY = 0;
+
+    // Minimap drag state
+    let isMinimapDragging = false;
+    let minimapDragOffsetX = 0;
+    let minimapDragOffsetY = 0;
+
+    // Search state
+    let searchMatches = [];
+    let currentMatchIndex = -1;
+    let highlightGroup = null;
+    let searchDebounceTimer = null;
+
+    const MIN_SCALE = 0.1;
+    const MAX_SCALE = 5;
+
+    // === File Loading ===
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) loadSvgFile(file);
+    });
+
+    // Examples dropdowns (toolbar and empty state)
+    const exampleFiles = [
+      'vm_flow.svg',
+      'PLS_Base.svg',
+      'dominion.svg',
+      'blueprint.svg'
+    ];
+
+    document.querySelectorAll('.examples-select').forEach(select => {
+      // Populate options
+      exampleFiles.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file;
+        option.textContent = file;
+        select.appendChild(option);
+      });
+
+      // Handle selection
+      select.addEventListener('change', async (e) => {
+        const file = e.target.value;
+        if (!file) return;
+
+        try {
+          const response = await fetch(`examples/${file}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${file}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+
+        // Reset dropdown to placeholder
+        select.value = '';
+      });
+    });
+
+    // Empty state file button
+    document.getElementById('empty-file-btn').addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    // Drag and drop
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.add('active');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      if (e.target === dropOverlay) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.remove('active');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.svg')) {
+        loadSvgFile(file);
+      }
+    });
+
+    function loadSvgFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const svgText = e.target.result;
+        loadSvgContent(svgText);
+        document.title = `SVG Viewer - ${file.name}`;
+      };
+      reader.readAsText(file);
+    }
+
+    function loadSvgContent(svgText) {
+      // Clear previous content
+      svgContainer.innerHTML = svgText;
+      svgElement = svgContainer.querySelector('svg');
+
+      if (!svgElement) {
+        alert('Invalid SVG file');
+        return;
+      }
+
+      // Show viewport, hide empty state
+      emptyState.classList.add('hidden');
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap
+      initMinimap(svgText);
+    }
+
+    // === Zoom Controls ===
+
+    document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.25));
+    document.getElementById('zoom-out').addEventListener('click', () => zoomBy(0.8));
+    document.getElementById('zoom-reset').addEventListener('click', () => setZoom(1));
+
+    // === Dark Mode Toggle ===
+
+    darkModeToggle.addEventListener('click', toggleDarkMode);
+
+    function toggleDarkMode() {
+      darkMode = !darkMode;
+      svgContainer.classList.toggle('dark-mode', darkMode);
+      minimapContent.classList.toggle('dark-mode', darkMode);
+      darkModeToggle.classList.toggle('active', darkMode);
+    }
+
+    // === Minimap ===
+
+    minimapToggle.addEventListener('click', toggleMinimap);
+
+    function toggleMinimap() {
+      minimapVisible = !minimapVisible;
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+    }
+
+    function initMinimap(svgText) {
+      // Calculate minimap size to fit within bounds while preserving aspect ratio
+      const maxWidth = 400;
+      const maxHeight = 600;
+      const aspectRatio = svgWidth / svgHeight;
+
+      let mmWidth, mmHeight;
+      if (aspectRatio > maxWidth / maxHeight) {
+        // Width constrained
+        mmWidth = maxWidth;
+        mmHeight = maxWidth / aspectRatio;
+      } else {
+        // Height constrained
+        mmHeight = maxHeight;
+        mmWidth = maxHeight * aspectRatio;
+      }
+
+      minimap.style.width = mmWidth + 'px';
+      minimap.style.height = mmHeight + 'px';
+
+      // Set canvas size (use higher resolution for retina displays)
+      const dpr = window.devicePixelRatio || 1;
+      minimapCanvas.width = mmWidth * dpr;
+      minimapCanvas.height = mmHeight * dpr;
+      minimapCanvas.style.width = mmWidth + 'px';
+      minimapCanvas.style.height = mmHeight + 'px';
+
+      // Show minimap
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+
+      // Sync dark mode
+      minimapContent.classList.toggle('dark-mode', darkMode);
+
+      // Rasterize SVG to canvas
+      rasterizeSvgToCanvas(svgText, mmWidth, mmHeight, dpr);
+
+      // Update viewport indicator
+      updateMinimapViewport();
+    }
+
+    function rasterizeSvgToCanvas(svgText, width, height, dpr) {
+      const img = new Image();
+      const blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+
+      img.onload = () => {
+        const ctx = minimapCanvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+
+        // Cache the image data for potential re-use
+        minimapImageData = ctx.getImageData(0, 0, minimapCanvas.width, minimapCanvas.height);
+      };
+
+      img.onerror = () => {
+        console.error('Failed to rasterize SVG for minimap');
+        URL.revokeObjectURL(url);
+      };
+
+      img.src = url;
+    }
+
+    function updateMinimapViewport() {
+      if (!svgElement || !minimapVisible) return;
+
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+
+      // Padding in the main viewport
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Current scroll position relative to SVG (not padding)
+      const scrollX = viewport.scrollLeft - padX;
+      const scrollY = viewport.scrollTop - padY;
+
+      // Visible area in SVG coordinates
+      const visibleX = scrollX / scale;
+      const visibleY = scrollY / scale;
+      const visibleW = vpRect.width / scale;
+      const visibleH = vpRect.height / scale;
+
+      // Scale to minimap coordinates
+      const mmScaleX = mmRect.width / svgWidth;
+      const mmScaleY = mmRect.height / svgHeight;
+
+      // Position and size the viewport indicator (no clamping - allow overflow)
+      const left = visibleX * mmScaleX;
+      const top = visibleY * mmScaleY;
+      const width = visibleW * mmScaleX;
+      const height = visibleH * mmScaleY;
+
+      minimapViewport.style.left = left + 'px';
+      minimapViewport.style.top = top + 'px';
+      minimapViewport.style.width = Math.max(10, width) + 'px';
+      minimapViewport.style.height = Math.max(10, height) + 'px';
+    }
+
+    // Update minimap on scroll
+    viewport.addEventListener('scroll', updateMinimapViewport);
+
+    // Minimap click/drag to navigate
+    minimapContent.addEventListener('mousedown', (e) => {
+      isMinimapDragging = true;
+
+      // Calculate offset so dragging feels natural
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = minimapViewport.getBoundingClientRect();
+
+      // Check if clicking inside the viewport indicator
+      const inViewport = e.clientX >= vpRect.left && e.clientX <= vpRect.right &&
+        e.clientY >= vpRect.top && e.clientY <= vpRect.bottom;
+
+      if (inViewport) {
+        // Drag from current position
+        minimapDragOffsetX = e.clientX - vpRect.left;
+        minimapDragOffsetY = e.clientY - vpRect.top;
+      } else {
+        // Click outside - center viewport on click point, then allow drag
+        const vpW = vpRect.width;
+        const vpH = vpRect.height;
+        minimapDragOffsetX = vpW / 2;
+        minimapDragOffsetY = vpH / 2;
+        navigateMinimapTo(e, true);
+      }
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isMinimapDragging) return;
+      navigateMinimapTo(e, true);
+    });
+
+    document.addEventListener('mouseup', () => {
+      isMinimapDragging = false;
+    });
+
+    function navigateMinimapTo(e, useDragOffset = false) {
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Mouse position in minimap
+      let mmX = e.clientX - mmRect.left;
+      let mmY = e.clientY - mmRect.top;
+
+      if (useDragOffset) {
+        // Adjust for drag offset (top-left of viewport indicator)
+        mmX -= minimapDragOffsetX;
+        mmY -= minimapDragOffsetY;
+      } else {
+        // Click centers the viewport on that point
+        const vpW = (vpRect.width / scale) * (mmRect.width / svgWidth);
+        const vpH = (vpRect.height / scale) * (mmRect.height / svgHeight);
+        mmX -= vpW / 2;
+        mmY -= vpH / 2;
+      }
+
+      // Convert to SVG coordinates
+      const svgX = (mmX / mmRect.width) * svgWidth;
+      const svgY = (mmY / mmRect.height) * svgHeight;
+
+      // Scroll to position (accounting for padding)
+      viewport.scrollLeft = svgX * scale + padX;
+      viewport.scrollTop = svgY * scale + padY;
+    }
+
+    function zoomBy(factor, centerX, centerY) {
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor));
+      if (newScale === scale) return;
+
+      const rect = viewport.getBoundingClientRect();
+      const oldPadX = rect.width;
+      const oldPadY = rect.height;
+
+      // If center point provided, zoom towards it
+      if (centerX !== undefined && centerY !== undefined) {
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates (accounting for padding)
+        const svgX = (scrollX + centerX - rect.left - oldPadX) / scale;
+        const svgY = (scrollY + centerY - rect.top - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        // New padding after zoom (viewport size doesn't change)
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        // Scroll to keep the point under cursor
+        viewport.scrollLeft = svgX * scale + newPadX - (centerX - rect.left);
+        viewport.scrollTop = svgY * scale + newPadY - (centerY - rect.top);
+      } else {
+        // Zoom towards center of viewport
+        const viewCenterX = rect.width / 2;
+        const viewCenterY = rect.height / 2;
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates
+        const svgX = (scrollX + viewCenterX - oldPadX) / scale;
+        const svgY = (scrollY + viewCenterY - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        viewport.scrollLeft = svgX * scale + newPadX - viewCenterX;
+        viewport.scrollTop = svgY * scale + newPadY - viewCenterY;
+      }
+    }
+
+    function setZoom(newScale) {
+      scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+      updateZoom();
+    }
+
+    function centerSvg() {
+      const rect = viewport.getBoundingClientRect();
+      const padX = rect.width;
+      const padY = rect.height;
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      // Scroll so SVG is centered in viewport
+      viewport.scrollLeft = padX + (scaledW - rect.width) / 2;
+      viewport.scrollTop = padY + (scaledH - rect.height) / 2;
+    }
+
+    function updateZoom() {
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportW = viewportRect.width;
+      const viewportH = viewportRect.height;
+
+      // Padding allows the SVG to be scrolled so it can be centered (or anywhere)
+      const padX = viewportW;
+      const padY = viewportH;
+
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      svgContainer.style.transform = `scale(${scale})`;
+      svgContainer.style.width = scaledW + 'px';
+      svgContainer.style.height = scaledH + 'px';
+
+      // Wrapper includes padding on all sides
+      svgWrapper.style.paddingLeft = padX + 'px';
+      svgWrapper.style.paddingTop = padY + 'px';
+      svgWrapper.style.paddingRight = padX + 'px';
+      svgWrapper.style.paddingBottom = padY + 'px';
+
+      zoomLevelEl.textContent = Math.round(scale * 100) + '%';
+
+      // Update minimap viewport indicator
+      updateMinimapViewport();
+    }
+
+    // Mouse wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      zoomBy(factor, e.clientX, e.clientY);
+    }, {passive: false});
+
+    // === Panning ===
+
+    function isTextElement(el) {
+      while (el && el !== viewport) {
+        if (el.tagName === 'text' || el.tagName === 'tspan') return true;
+        el = el.parentElement;
+      }
+      return false;
+    }
+
+    viewport.addEventListener('mousedown', (e) => {
+      // Middle mouse always pans
+      if (e.button === 1) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+        return;
+      }
+
+      // Left click: pan if not on text, otherwise let browser handle selection
+      if (e.button === 0 && !isTextElement(e.target)) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+      }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isPanning) return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      viewport.scrollLeft = scrollStartX - dx;
+      viewport.scrollTop = scrollStartY - dy;
+    });
+
+    document.addEventListener('mouseup', () => {
+      isPanning = false;
+      viewport.classList.remove('panning');
+    });
+
+    // === Touch Support (pinch zoom only, panning is native scroll) ===
+
+    let touchStartDist = 0;
+    let touchStartScale = 1;
+    let lastTouchCenter = null;
+
+    viewport.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        touchStartDist = getTouchDistance(e.touches);
+        touchStartScale = scale;
+        lastTouchCenter = getTouchCenter(e.touches);
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDistance(e.touches);
+        const center = getTouchCenter(e.touches);
+        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, touchStartScale * (dist / touchStartDist)));
+
+        if (newScale !== scale) {
+          // Zoom towards pinch center
+          const rect = viewport.getBoundingClientRect();
+          const padX = rect.width;
+          const padY = rect.height;
+
+          const svgX = (viewport.scrollLeft + center.x - rect.left - padX) / scale;
+          const svgY = (viewport.scrollTop + center.y - rect.top - padY) / scale;
+
+          scale = newScale;
+          updateZoom();
+
+          viewport.scrollLeft = svgX * scale + padX - (center.x - rect.left);
+          viewport.scrollTop = svgY * scale + padY - (center.y - rect.top);
+        }
+
+        lastTouchCenter = center;
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) {
+        touchStartDist = 0;
+        lastTouchCenter = null;
+      }
+    });
+
+    function getTouchDistance(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getTouchCenter(touches) {
+      return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2
+      };
+    }
+
+    // === Search ===
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(performSearch, 150);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          navigateSearch(-1);
+        } else {
+          navigateSearch(1);
+        }
+      } else if (e.key === 'Escape') {
+        searchInput.blur();
+        clearSearch();
+      }
+    });
+
+    document.getElementById('search-prev').addEventListener('click', () => navigateSearch(-1));
+    document.getElementById('search-next').addEventListener('click', () => navigateSearch(1));
+
+    // CSS Custom Highlight API highlights
+    let searchResultsHighlight = null;
+    let searchCurrentHighlight = null;
+
+    // Initialize highlights if API is available
+    if (CSS.highlights) {
+      searchResultsHighlight = new Highlight();
+      searchCurrentHighlight = new Highlight();
+      CSS.highlights.set('search-results', searchResultsHighlight);
+      CSS.highlights.set('search-current', searchCurrentHighlight);
+    }
+
+    function performSearch() {
+      if (!svgElement) return;
+
+      const query = searchInput.value.trim();
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+
+      if (!query) {
+        updateSearchInfo();
+        searchInput.classList.remove('invalid');
+        return;
+      }
+
+      // Try to compile regex
+      let regex;
+      try {
+        regex = new RegExp(query, 'gi');
+        searchInput.classList.remove('invalid');
+      } catch (e) {
+        // Invalid regex
+        searchInput.classList.add('invalid');
+        updateSearchInfo();
+        return;
+      }
+
+      // Find all text elements containing matches
+      const textElements = svgElement.querySelectorAll('text');
+      textElements.forEach((textEl) => {
+        const content = textEl.textContent || '';
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        let match;
+        regex.lastIndex = 0; // Reset regex state
+        while ((match = regex.exec(content)) !== null) {
+          // Create range for this match
+          try {
+            const range = new Range();
+            range.setStart(textNode, match.index);
+            range.setEnd(textNode, match.index + match[0].length);
+
+            searchMatches.push({
+              element: textEl,
+              start: match.index,
+              length: match[0].length,
+              text: match[0],
+              range: range
+            });
+          } catch (e) {
+            // Range creation failed, skip this match
+          }
+
+          // Prevent infinite loop on zero-length matches
+          if (match[0].length === 0) regex.lastIndex++;
+        }
+      });
+
+      // Add all ranges to the highlight (if API available)
+      if (searchResultsHighlight) {
+        searchMatches.forEach(match => {
+          searchResultsHighlight.add(match.range);
+        });
+      } else {
+        // Fallback: use SVG rects
+        searchMatches.forEach((match, index) => {
+          const rect = createHighlightRect(match);
+          if (rect) {
+            rect.dataset.index = index;
+            highlightGroup.appendChild(rect);
+          }
+        });
+      }
+
+      updateSearchInfo();
+
+      // Navigate to first match (don't select - user is still typing)
+      if (searchMatches.length > 0) {
+        currentMatchIndex = 0;
+        highlightCurrentMatch();
+        scrollToCurrentMatch(false);
+      }
+    }
+
+    function createHighlightRect(match) {
+      try {
+        const textEl = match.element;
+        const fullBbox = textEl.getBBox();
+        const content = textEl.textContent || '';
+
+        // Calculate approximate character width
+        const charWidth = fullBbox.width / content.length;
+
+        // Calculate highlight bounds for the matched portion
+        const x = fullBbox.x + (match.start * charWidth);
+        const width = match.length * charWidth;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x - 1);
+        rect.setAttribute('y', fullBbox.y - 2);
+        rect.setAttribute('width', width + 2);
+        rect.setAttribute('height', fullBbox.height + 4);
+        rect.classList.add('search-highlight');
+
+        // Apply transforms from parent elements
+        let transform = '';
+        let el = textEl;
+        while (el && el !== svgElement) {
+          const t = el.getAttribute('transform');
+          if (t) transform = t + ' ' + transform;
+          el = el.parentElement;
+        }
+        if (transform) {
+          rect.setAttribute('transform', transform);
+        }
+
+        return rect;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function clearHighlights() {
+      // Clear CSS Custom Highlights
+      if (searchResultsHighlight) {
+        searchResultsHighlight.clear();
+      }
+      if (searchCurrentHighlight) {
+        searchCurrentHighlight.clear();
+      }
+      // Clear SVG rect fallback
+      if (highlightGroup) {
+        highlightGroup.innerHTML = '';
+      }
+    }
+
+    function clearSearch() {
+      searchInput.value = '';
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+      updateSearchInfo();
+    }
+
+    function navigateSearch(direction) {
+      if (searchMatches.length === 0) return;
+
+      currentMatchIndex += direction;
+      if (currentMatchIndex >= searchMatches.length) {
+        currentMatchIndex = 0;
+      } else if (currentMatchIndex < 0) {
+        currentMatchIndex = searchMatches.length - 1;
+      }
+
+      highlightCurrentMatch();
+      scrollToCurrentMatch(true); // Select text on explicit navigation
+    }
+
+    function highlightCurrentMatch() {
+      if (searchCurrentHighlight) {
+        // Update current highlight
+        searchCurrentHighlight.clear();
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchMatches.length) {
+          searchCurrentHighlight.add(searchMatches[currentMatchIndex].range);
+        }
+      } else {
+        // Fallback: toggle class on SVG rects
+        const rects = highlightGroup.querySelectorAll('rect');
+        rects.forEach((rect, i) => {
+          rect.classList.toggle('current', i === currentMatchIndex);
+        });
+      }
+      updateSearchInfo();
+    }
+
+    function scrollToCurrentMatch(shouldSelect = false) {
+      if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
+
+      const match = searchMatches[currentMatchIndex];
+      const textEl = match.element;
+      try {
+        const bbox = textEl.getBBox();
+
+        // Get cumulative transform
+        let el = textEl;
+        let matrix = svgElement.createSVGMatrix();
+        const transforms = [];
+        while (el && el !== svgElement) {
+          const t = el.transform?.baseVal?.consolidate()?.matrix;
+          if (t) transforms.unshift(t);
+          el = el.parentElement;
+        }
+        transforms.forEach(t => {
+          matrix = matrix.multiply(t);
+        });
+
+        // Transform the center point
+        const centerX = bbox.x + bbox.width / 2;
+        const centerY = bbox.y + bbox.height / 2;
+        const point = svgElement.createSVGPoint();
+        point.x = centerX;
+        point.y = centerY;
+        const transformed = point.matrixTransform(matrix);
+
+        // Convert to screen coordinates and scroll (accounting for padding)
+        const viewportRect = viewport.getBoundingClientRect();
+        const padX = viewportRect.width;
+        const padY = viewportRect.height;
+
+        const screenX = transformed.x * scale + padX;
+        const screenY = transformed.y * scale + padY;
+
+        const targetScrollX = screenX - viewportRect.width / 2;
+        const targetScrollY = screenY - viewportRect.height / 2;
+
+        viewport.scrollTo({
+          left: targetScrollX,
+          top: targetScrollY,
+          behavior: 'smooth'
+        });
+
+        // Only select text on explicit navigation (Enter/buttons), not while typing
+        if (shouldSelect) {
+          selectMatchedText(match);
+        }
+      } catch (e) {
+        // Fallback: try to scroll the element into view
+        textEl.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});
+      }
+    }
+
+    function selectMatchedText(match) {
+      try {
+        const textEl = match.element;
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.setStart(textNode, match.start);
+        range.setEnd(textNode, match.start + match.length);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (e) {
+        // Selection not supported or failed
+      }
+    }
+
+    function updateSearchInfo() {
+      if (searchMatches.length === 0) {
+        searchInfo.textContent = searchInput.value ? 'No matches' : '0 / 0';
+      } else {
+        searchInfo.textContent = `${currentMatchIndex + 1} / ${searchMatches.length}`;
+      }
+    }
+
+    // === Keyboard Shortcuts ===
+
+    document.addEventListener('keydown', (e) => {
+      // Don't handle shortcuts if typing in search
+      if (document.activeElement === searchInput) return;
+
+      // Zoom shortcuts
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomBy(1.25);
+      } else if (e.key === '-') {
+        e.preventDefault();
+        zoomBy(0.8);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setZoom(1);
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        toggleDarkMode();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        toggleMinimap();
+      }
+    });
+
+    // === Embedded SVG Support ===
+
+    function initializeEmbeddedSvg() {
+      // Check if an SVG is already present in the container (embedded at build time)
+      svgElement = svgContainer.querySelector('svg');
+      if (!svgElement) return false;
+
+      // Hide file selection UI since this is a self-contained viewer
+      const fileGroup = document.querySelector('#toolbar .group:first-child');
+      if (fileGroup) fileGroup.style.display = 'none';
+      emptyState.style.display = 'none';
+
+      // Show viewport
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap - serialize SVG for rasterization
+      const svgText = new XMLSerializer().serializeToString(svgElement);
+      initMinimap(svgText);
+
+      return true;
+    }
+
+    // Check for embedded SVG on startup
+    const hasEmbeddedSvg = initializeEmbeddedSvg();
+
+    // === URL Hash Loading ===
+
+    async function loadFromHash() {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return;
+
+      const params = new URLSearchParams(hash);
+
+      // Check for url= parameter
+      const url = params.get('url');
+      if (url) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            // Extract filename from URL for title
+            const filename = url.split('/').pop() || 'remote';
+            document.title = `SVG Viewer - ${filename}`;
+          } else {
+            console.error('Failed to load SVG from URL:', response.status);
+          }
+        } catch (err) {
+          console.error('Failed to load SVG from URL:', err);
+        }
+        return;
+      }
+
+      // Check for example= parameter
+      const example = params.get('example');
+      if (example && exampleFiles.includes(example)) {
+        try {
+          const response = await fetch(`examples/${example}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${example}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+      }
+    }
+
+    // Only load from hash if no embedded SVG
+    if (!hasEmbeddedSvg) {
+      loadFromHash();
+      window.addEventListener('hashchange', loadFromHash);
+    }
+
+  </script>
+</body>
+
+</html>

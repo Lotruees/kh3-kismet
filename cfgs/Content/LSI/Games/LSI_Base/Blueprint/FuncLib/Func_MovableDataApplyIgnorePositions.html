@@ -1,0 +1,2142 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SVG Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #toolbar {
+      background: #2d2d2d;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #444;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #toolbar .group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #toolbar label {
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    #toolbar button {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    #toolbar button:hover {
+      background: #555;
+    }
+
+    #toolbar button:active {
+      background: #666;
+    }
+
+    #file-input {
+      font-size: 13px;
+    }
+
+    .examples-select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .examples-select:hover {
+      background: #555;
+    }
+
+    #zoom-level {
+      min-width: 50px;
+      text-align: center;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #search-input {
+      background: #333;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      width: 200px;
+    }
+
+    #search-input:focus {
+      outline: none;
+      border-color: #0078d4;
+    }
+
+    #search-input.invalid {
+      border-color: #d32f2f;
+      background: #3d2020;
+    }
+
+    #search-info {
+      font-size: 13px;
+      color: #aaa;
+      min-width: 60px;
+    }
+
+    #viewport {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      touch-action: pan-x pan-y;
+      cursor: grab;
+    }
+
+    #viewport.panning {
+      cursor: grabbing;
+    }
+
+    #svg-container text {
+      cursor: text;
+    }
+
+    #svg-wrapper {
+      display: inline-block;
+      /* Padding allows SVG to be scrolled/centered even when zoomed out */
+    }
+
+    #svg-container {
+      transform-origin: 0 0;
+      display: inline-block;
+    }
+
+    #svg-container svg {
+      display: block;
+    }
+
+    /* Dark mode for SVG - invert with reduced contrast */
+    #svg-container.dark-mode svg {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    /* Toggle button active state */
+    #toolbar button.active {
+      background: #0078d4;
+      border-color: #0078d4;
+    }
+
+    #toolbar button.active:hover {
+      background: #1084d8;
+    }
+
+    /* Search highlight styling - SVG rect fallback */
+    .search-highlight {
+      fill: #22ee22;
+      stroke: #00aa00;
+      stroke-width: 1;
+      pointer-events: none;
+    }
+
+    .search-highlight.current {
+      fill: #ff22ff;
+      stroke: #cc00cc;
+      stroke-width: 2;
+    }
+
+    /* CSS Custom Highlight API styling */
+    ::highlight(search-results) {
+      background-color: #22ee22;
+      color: black;
+    }
+
+    ::highlight(search-current) {
+      background-color: #ff22ff;
+      color: black;
+    }
+
+    #hint {
+      position: fixed;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #aaa;
+    }
+
+    #hint kbd {
+      background: #444;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: inherit;
+      margin: 0 2px;
+    }
+
+    /* Hide hint on mobile/touch devices */
+    @media (hover: none),
+    (max-width: 768px) {
+      #hint {
+        display: none;
+      }
+    }
+
+    /* Minimap */
+    #minimap {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      width: 400px;
+      max-height: 600px;
+      background: #2d2d2d;
+      border: 1px solid #444;
+      border-radius: 6px;
+      overflow: hidden;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+
+    #minimap.visible {
+      display: block;
+    }
+
+    #minimap-content {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #minimap-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #minimap-viewport {
+      position: absolute;
+      border: 2px solid #0078d4;
+      background: rgba(0, 120, 212, 0.15);
+      cursor: move;
+      pointer-events: auto;
+    }
+
+    #minimap-content.dark-mode #minimap-canvas {
+      filter: invert(0.88) hue-rotate(180deg);
+    }
+
+    #drop-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 120, 212, 0.2);
+      border: 3px dashed #0078d4;
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #0078d4;
+    }
+
+    #drop-overlay.active {
+      display: flex;
+    }
+
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      gap: 16px;
+    }
+
+    #empty-state.hidden {
+      display: none;
+    }
+
+    #empty-state .empty-title {
+      font-size: 32px;
+      font-weight: 600;
+      color: #ccc;
+    }
+
+    #empty-state .empty-subtitle {
+      font-size: 18px;
+      color: #666;
+    }
+
+    #empty-state .empty-divider {
+      font-size: 14px;
+      color: #555;
+      margin: 8px 0;
+    }
+
+    #empty-state .empty-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    #empty-state button,
+    #empty-state select {
+      background: #444;
+      border: 1px solid #555;
+      color: #e0e0e0;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #empty-state button:hover,
+    #empty-state select:hover {
+      background: #555;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="toolbar">
+    <div class="group">
+      <input type="file" id="file-input" accept=".svg">
+      <select class="examples-select" title="Load example SVG">
+        <option value="">Examples...</option>
+      </select>
+    </div>
+    <div class="group">
+      <button id="zoom-out" title="Zoom out (-)">-</button>
+      <span id="zoom-level">100%</span>
+      <button id="zoom-in" title="Zoom in (+)">+</button>
+      <button id="zoom-reset" title="Reset zoom (0)">Reset</button>
+    </div>
+    <div class="group">
+      <button id="dark-mode-toggle" title="Toggle dark mode for SVG (D)">Dark Mode</button>
+      <button id="minimap-toggle" title="Toggle minimap (M)">Minimap</button>
+    </div>
+    <div class="group">
+      <input type="search" id="search-input" placeholder="Regex search...">
+      <button id="search-prev" title="Previous match (Shift+Enter)">Prev</button>
+      <span id="search-info">0 / 0</span>
+      <button id="search-next" title="Next match (Enter)">Next</button>
+    </div>
+  </div>
+
+  <div id="empty-state">
+    <div class="empty-title">SVG Viewer</div>
+    <div class="empty-subtitle">Drop an SVG file here</div>
+    <div class="empty-divider">or</div>
+    <div class="empty-actions">
+      <button id="empty-file-btn">Choose File</button>
+      <select class="examples-select">
+        <option value="">Load Example...</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="viewport" style="display: none;">
+    <div id="svg-wrapper">
+      <div id="svg-container"><?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+ "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Generated by graphviz version 14.1.1 (20251213.1925)
+ -->
+<!-- Pages: 1 -->
+<svg width="2545pt" height="2603pt"
+ viewBox="0.00 0.00 2545.00 2603.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 2599)">
+<polygon fill="white" stroke="none" points="-4,4 -4,-2599 2540.5,-2599 2540.5,4 -4,4"/>
+<!-- Func_MovableDataApplyIgnorePositions_C -->
+<g id="node1" class="node">
+<title>Func_MovableDataApplyIgnorePositions_C</title>
+<polygon fill="#d4ffd4" stroke="none" points="8,-2543 8,-2591 542,-2591 542,-2543 8,-2543"/>
+<polygon fill="none" stroke="black" points="8,-2543 8,-2591 542,-2591 542,-2543 8,-2543"/>
+<text xml:space="preserve" text-anchor="start" x="11" y="-2575.7" font-family="monospace" font-size="14.00" fill="#800080">ClassExport:</text>
+<text xml:space="preserve" text-anchor="start" x="110" y="-2575.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="118.25" y="-2575.7" font-family="monospace" font-size="14.00" fill="#996300">Func_MovableDataApplyIgnorePositions_C</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-2561.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-2561.7" font-family="monospace" font-size="14.00" fill="#800080">SuperStruct:</text>
+<text xml:space="preserve" text-anchor="start" x="126.5" y="-2561.7" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="151.25" y="-2561.7" font-family="monospace" font-size="14.00" fill="#996300">import /Script/Engine&#45;&gt;BlueprintFunctionLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="11" y="-2547.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="27.5" y="-2547.7" font-family="monospace" font-size="14.00" fill="#800080">Properties:</text>
+</g>
+<!-- MovableDataApplyIgnorePositions -->
+<g id="node2" class="node">
+<title>MovableDataApplyIgnorePositions</title>
+<polygon fill="#ffd4d4" stroke="none" points="1208.38,-2542.5 1208.38,-2590.5 1915.62,-2590.5 1915.62,-2542.5 1208.38,-2542.5"/>
+<polygon fill="none" stroke="black" points="1208.38,-2542.5 1208.38,-2590.5 1915.62,-2590.5 1915.62,-2542.5 1208.38,-2542.5"/>
+<text xml:space="preserve" text-anchor="start" x="1211.38" y="-2575.2" font-family="monospace" font-size="14.00" fill="#800080">Function</text>
+<text xml:space="preserve" text-anchor="start" x="1277.38" y="-2575.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1285.62" y="-2575.2" font-family="monospace" font-size="14.00" fill="#6a0080">MovableDataApplyIgnorePositions</text>
+<text xml:space="preserve" text-anchor="start" x="1211.38" y="-2561.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1227.88" y="-2561.2" font-family="monospace" font-size="14.00" fill="#996300">Array</text>
+<text xml:space="preserve" text-anchor="start" x="1269.12" y="-2561.2" font-family="monospace" font-size="14.00">┬á┬á </text>
+<text xml:space="preserve" text-anchor="start" x="1293.88" y="-2561.2" font-family="monospace" font-size="14.00" fill="#006400">MovableData</text>
+<text xml:space="preserve" text-anchor="start" x="1211.38" y="-2547.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1244.38" y="-2547.2" font-family="monospace" font-size="14.00" fill="#800080">CPF_BlueprintVisible|CPF_BlueprintReadOnly|CPF_Parm|CPF_OutParm|CPF_ReferenceParm</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_0 -->
+<g id="node3" class="node">
+<title>MovableDataApplyIgnorePositions__block_0</title>
+<polygon fill="#eeeeee" stroke="none" points="1249.62,-2453.5 1249.62,-2498.5 1874.38,-2498.5 1874.38,-2453.5 1249.62,-2453.5"/>
+<polygon fill="none" stroke="black" points="1249.62,-2476 1249.62,-2498.5 1874.38,-2498.5 1874.38,-2476 1249.62,-2476"/>
+<text xml:space="preserve" text-anchor="start" x="1252.62" y="-2482.2" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 0</text>
+<polygon fill="none" stroke="black" points="1249.62,-2453.5 1249.62,-2476 1874.38,-2476 1874.38,-2453.5 1249.62,-2453.5"/>
+<text xml:space="preserve" text-anchor="start" x="1252.62" y="-2460.7" font-family="monospace" font-size="14.00" fill="#555555">0: </text>
+<text xml:space="preserve" text-anchor="start" x="1277.38" y="-2460.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PushExecutionFlow</text>
+<text xml:space="preserve" text-anchor="start" x="1442.38" y="-2460.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1450.62" y="-2460.7" font-family="monospace" font-size="14.00" fill="#555555">837</text>
+</g>
+<!-- MovableDataApplyIgnorePositions&#45;&gt;MovableDataApplyIgnorePositions__block_0 -->
+<g id="edge1" class="edge">
+<title>MovableDataApplyIgnorePositions&#45;&gt;MovableDataApplyIgnorePositions__block_0:n</title>
+<path fill="none" stroke="black" d="M1562,-2538.52C1562,-2530.86 1562,-2522.29 1562,-2513.84"/>
+<polygon fill="black" stroke="black" points="1565.5,-2514.01 1562,-2504.01 1558.5,-2514.01 1565.5,-2514.01"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_837 -->
+<g id="node4" class="node">
+<title>MovableDataApplyIgnorePositions__block_837</title>
+<polygon fill="#eeeeee" stroke="none" points="1735.38,-2325 1735.38,-2381.5 2376.62,-2381.5 2376.62,-2325 1735.38,-2325"/>
+<polygon fill="none" stroke="black" points="1735.38,-2359 1735.38,-2381.5 2376.62,-2381.5 2376.62,-2359 1735.38,-2359"/>
+<text xml:space="preserve" text-anchor="start" x="1738.38" y="-2365.2" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 837</text>
+<polygon fill="none" stroke="black" points="1735.38,-2325 1735.38,-2359 2376.62,-2359 2376.62,-2325 1735.38,-2325"/>
+<text xml:space="preserve" text-anchor="start" x="1738.38" y="-2343.7" font-family="monospace" font-size="14.00" fill="#555555">837: </text>
+<text xml:space="preserve" text-anchor="start" x="1779.62" y="-2343.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Return</text>
+<text xml:space="preserve" text-anchor="start" x="1738.38" y="-2329.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">838: </text>
+<text xml:space="preserve" text-anchor="start" x="1779.62" y="-2329.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1796.12" y="-2329.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Nothing</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_0&#45;&gt;MovableDataApplyIgnorePositions__block_837 -->
+<g id="edge2" class="edge">
+<title>MovableDataApplyIgnorePositions__block_0:e&#45;&gt;MovableDataApplyIgnorePositions__block_837:n</title>
+<path fill="none" stroke="purple" stroke-width="2" stroke-dasharray="1,5" d="M1883.07,-2476C1965.23,-2476 2047.23,-2473.27 2055.34,-2398.97"/>
+<polygon fill="none" stroke="purple" stroke-width="2" points="2058.81,-2399.61 2055.84,-2389.44 2051.82,-2399.24 2058.81,-2399.61"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_5 -->
+<g id="node14" class="node">
+<title>MovableDataApplyIgnorePositions__block_5</title>
+<polygon fill="#eeeeee" stroke="none" points="1076.62,-2297 1076.62,-2409.5 1701.38,-2409.5 1701.38,-2297 1076.62,-2297"/>
+<polygon fill="none" stroke="black" points="1076.62,-2387 1076.62,-2409.5 1701.38,-2409.5 1701.38,-2387 1076.62,-2387"/>
+<text xml:space="preserve" text-anchor="start" x="1079.62" y="-2393.2" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 5</text>
+<polygon fill="none" stroke="black" points="1076.62,-2297 1076.62,-2387 1701.38,-2387 1701.38,-2297 1076.62,-2297"/>
+<text xml:space="preserve" text-anchor="start" x="1079.62" y="-2371.7" font-family="monospace" font-size="14.00" fill="#555555">5: </text>
+<text xml:space="preserve" text-anchor="start" x="1104.38" y="-2371.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1079.62" y="-2357.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">14: </text>
+<text xml:space="preserve" text-anchor="start" x="1112.62" y="-2357.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1129.12" y="-2357.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1261.12" y="-2357.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1269.38" y="-2357.7" font-family="monospace" font-size="14.00" fill="#006400">Temp_int_Loop_Counter_Variable</text>
+<text xml:space="preserve" text-anchor="start" x="1079.62" y="-2343.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">23: </text>
+<text xml:space="preserve" text-anchor="start" x="1112.62" y="-2343.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1129.12" y="-2343.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1219.88" y="-2343.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1228.12" y="-2343.7" font-family="monospace" font-size="14.00" fill="#0000cd">0</text>
+<text xml:space="preserve" text-anchor="start" x="1079.62" y="-2329.7" font-family="monospace" font-size="14.00" fill="#555555">28: </text>
+<text xml:space="preserve" text-anchor="start" x="1112.62" y="-2329.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1079.62" y="-2315.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">37: </text>
+<text xml:space="preserve" text-anchor="start" x="1112.62" y="-2315.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1129.12" y="-2315.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1261.12" y="-2315.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1269.38" y="-2315.7" font-family="monospace" font-size="14.00" fill="#006400">Temp_int_Array_Index_Variable</text>
+<text xml:space="preserve" text-anchor="start" x="1079.62" y="-2301.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">46: </text>
+<text xml:space="preserve" text-anchor="start" x="1112.62" y="-2301.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1129.12" y="-2301.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1219.88" y="-2301.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1228.12" y="-2301.7" font-family="monospace" font-size="14.00" fill="#0000cd">0</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_0&#45;&gt;MovableDataApplyIgnorePositions__block_5 -->
+<g id="edge3" class="edge">
+<title>MovableDataApplyIgnorePositions__block_0&#45;&gt;MovableDataApplyIgnorePositions__block_5:n</title>
+<path fill="none" stroke="black" d="M1439.5,-2449.52C1418.2,-2442.45 1400.44,-2433.93 1392.9,-2423.96"/>
+<polygon fill="black" stroke="black" points="1396.3,-2423.07 1389.53,-2414.92 1389.74,-2425.51 1396.3,-2423.07"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_158 -->
+<g id="node5" class="node">
+<title>MovableDataApplyIgnorePositions__block_158</title>
+<polygon fill="#eeeeee" stroke="none" points="904.38,-1788 904.38,-1872.5 1545.63,-1872.5 1545.63,-1788 904.38,-1788"/>
+<polygon fill="none" stroke="black" points="904.38,-1850 904.38,-1872.5 1545.63,-1872.5 1545.63,-1850 904.38,-1850"/>
+<text xml:space="preserve" text-anchor="start" x="907.38" y="-1856.2" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 158</text>
+<polygon fill="none" stroke="black" points="904.38,-1788 904.38,-1850 1545.63,-1850 1545.63,-1788 904.38,-1788"/>
+<text xml:space="preserve" text-anchor="start" x="907.38" y="-1834.7" font-family="monospace" font-size="14.00" fill="#555555">158: </text>
+<text xml:space="preserve" text-anchor="start" x="948.63" y="-1834.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="907.38" y="-1820.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">167: </text>
+<text xml:space="preserve" text-anchor="start" x="948.63" y="-1820.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="965.13" y="-1820.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1097.13" y="-1820.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1105.38" y="-1820.7" font-family="monospace" font-size="14.00" fill="#006400">Temp_int_Array_Index_Variable</text>
+<text xml:space="preserve" text-anchor="start" x="907.38" y="-1806.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">176: </text>
+<text xml:space="preserve" text-anchor="start" x="948.63" y="-1806.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="965.13" y="-1806.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1097.13" y="-1806.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1105.38" y="-1806.7" font-family="monospace" font-size="14.00" fill="#006400">Temp_int_Loop_Counter_Variable</text>
+<text xml:space="preserve" text-anchor="start" x="907.38" y="-1792.7" font-family="monospace" font-size="14.00" fill="#555555">185: </text>
+<text xml:space="preserve" text-anchor="start" x="948.63" y="-1792.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PushExecutionFlow</text>
+<text xml:space="preserve" text-anchor="start" x="1113.63" y="-1792.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1121.88" y="-1792.7" font-family="monospace" font-size="14.00" fill="#555555">763</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_763 -->
+<g id="node6" class="node">
+<title>MovableDataApplyIgnorePositions__block_763</title>
+<polygon fill="#eeeeee" stroke="none" points="1056,-1916.5 1056,-2253 1722,-2253 1722,-1916.5 1056,-1916.5"/>
+<polygon fill="none" stroke="black" points="1056,-2230.5 1056,-2253 1722,-2253 1722,-2230.5 1056,-2230.5"/>
+<text xml:space="preserve" text-anchor="start" x="1071.38" y="-2236.7" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 763</text>
+<polygon fill="none" stroke="black" points="1056,-1916.5 1056,-2230.5 1722,-2230.5 1722,-1916.5 1056,-1916.5"/>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2215.2" font-family="monospace" font-size="14.00" fill="#555555">763: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-2215.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2201.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">772: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-2201.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1116.75" y="-2201.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1248.75" y="-2201.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1257" y="-2201.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Add_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2187.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">781: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-2187.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1116.75" y="-2187.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="1207.5" y="-2187.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1215.75" y="-2187.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;Add_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2173.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">790: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-2173.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1133.25" y="-2173.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1265.25" y="-2173.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1273.5" y="-2173.2" font-family="monospace" font-size="14.00" fill="#006400">Temp_int_Loop_Counter_Variable</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2159.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">799: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-2159.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1133.25" y="-2159.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_IntConst</text>
+<text xml:space="preserve" text-anchor="start" x="1224" y="-2159.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1232.25" y="-2159.2" font-family="monospace" font-size="14.00" fill="#0000cd">1</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2145.2" font-family="monospace" font-size="14.00" fill="#555555">805: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-2145.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2131.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">814: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-2131.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1116.75" y="-2131.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1248.75" y="-2131.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1257" y="-2131.2" font-family="monospace" font-size="14.00" fill="#006400">Temp_int_Loop_Counter_Variable</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2117.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">823: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-2117.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1116.75" y="-2117.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1248.75" y="-2117.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1257" y="-2117.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Add_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2103.2" font-family="monospace" font-size="14.00" fill="#555555">832: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-2103.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Jump</text>
+<text xml:space="preserve" text-anchor="start" x="1158" y="-2103.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1166.25" y="-2103.2" font-family="monospace" font-size="14.00" fill="#555555">51</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2089.2" font-family="monospace" font-size="14.00" fill="#555555">51: </text>
+<text xml:space="preserve" text-anchor="start" x="1092" y="-2089.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Let</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2075.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">60: </text>
+<text xml:space="preserve" text-anchor="start" x="1092" y="-2075.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1108.5" y="-2075.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1240.5" y="-2075.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1248.75" y="-2075.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Array_Length_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2061.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">69: </text>
+<text xml:space="preserve" text-anchor="start" x="1092" y="-2061.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1108.5" y="-2061.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2047.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">70: </text>
+<text xml:space="preserve" text-anchor="start" x="1092" y="-2047.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1125" y="-2047.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="1240.5" y="-2047.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1248.75" y="-2047.2" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__KismetArrayLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2033.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">91: </text>
+<text xml:space="preserve" text-anchor="start" x="1092" y="-2033.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1125" y="-2033.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="1257" y="-2033.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1265.25" y="-2033.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetArrayLibrary&#45;&gt;Array_Length</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2019.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">100: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-2019.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1149.75" y="-2019.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1306.5" y="-2019.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1314.75" y="-2019.2" font-family="monospace" font-size="14.00" fill="#006400">IgnorePositions</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-2005.2" font-family="monospace" font-size="14.00" fill="#555555">110: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-2005.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-1991.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">111: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-1991.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1116.75" y="-1991.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1248.75" y="-1991.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1257" y="-1991.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Less_IntInt_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-1977.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">120: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-1977.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1116.75" y="-1977.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_CallMath</text>
+<text xml:space="preserve" text-anchor="start" x="1207.5" y="-1977.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1215.75" y="-1977.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetMathLibrary&#45;&gt;Less_IntInt</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-1963.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">129: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-1963.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1133.25" y="-1963.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1265.25" y="-1963.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1273.5" y="-1963.2" font-family="monospace" font-size="14.00" fill="#006400">Temp_int_Loop_Counter_Variable</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-1949.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">138: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-1949.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1133.25" y="-1949.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1265.25" y="-1949.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1273.5" y="-1949.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Array_Length_ReturnValue</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-1935.2" font-family="monospace" font-size="14.00" fill="#555555">148: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-1935.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlowIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="1059" y="-1921.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">149: </text>
+<text xml:space="preserve" text-anchor="start" x="1100.25" y="-1921.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1116.75" y="-1921.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1248.75" y="-1921.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1257" y="-1921.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Less_IntInt_ReturnValue</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_158&#45;&gt;MovableDataApplyIgnorePositions__block_763 -->
+<g id="edge4" class="edge">
+<title>MovableDataApplyIgnorePositions__block_158:e&#45;&gt;MovableDataApplyIgnorePositions__block_763:n</title>
+<path fill="none" stroke="purple" stroke-width="2" stroke-dasharray="1,5" d="M1554.31,-1830.25C1640.53,-1830.25 1683.73,-1839.75 1730,-1912.5 1812.12,-2041.62 1838.05,-2148.45 1730,-2256.81 1718.14,-2268.71 1459.19,-2275.19 1400.68,-2263.29"/>
+<polygon fill="none" stroke="purple" stroke-width="2" points="1402.28,-2260.18 1391.74,-2259.1 1399.3,-2266.52 1402.28,-2260.18"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_190 -->
+<g id="node15" class="node">
+<title>MovableDataApplyIgnorePositions__block_190</title>
+<polygon fill="#eeeeee" stroke="none" points="574.38,-945.5 574.38,-1744 1875.63,-1744 1875.63,-945.5 574.38,-945.5"/>
+<polygon fill="none" stroke="black" points="574.38,-1721.5 574.38,-1744 1875.63,-1744 1875.63,-1721.5 574.38,-1721.5"/>
+<text xml:space="preserve" text-anchor="start" x="907.38" y="-1727.7" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 190</text>
+<polygon fill="none" stroke="black" points="574.38,-945.5 574.38,-1721.5 1875.63,-1721.5 1875.63,-945.5 574.38,-945.5"/>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1706.2" font-family="monospace" font-size="14.00" fill="#555555">190: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1706.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1692.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">191: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1692.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1692.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="750.63" y="-1692.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="758.88" y="-1692.2" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__KismetArrayLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1678.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">212: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1678.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1678.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="767.13" y="-1678.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="775.38" y="-1678.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetArrayLibrary&#45;&gt;Array_Get</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1664.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">221: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1664.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1664.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="808.38" y="-1664.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="816.63" y="-1664.2" font-family="monospace" font-size="14.00" fill="#006400">IgnorePositions</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1650.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">230: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1650.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1650.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1650.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1650.2" font-family="monospace" font-size="14.00" fill="#006400">Temp_int_Array_Index_Variable</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1636.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">239: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1636.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1636.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1636.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1636.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Array_Get_Item</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1622.2" font-family="monospace" font-size="14.00" fill="#555555">249: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1622.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1608.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">250: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1608.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1608.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructMemberContext</text>
+<text xml:space="preserve" text-anchor="start" x="816.63" y="-1608.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="824.88" y="-1608.2" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/Struct/ST_DirectionFlags&#45;&gt;ST_DirectionFlags&#45;&gt;Up_1_03DC33FD4F36EB3F47C8F5AA3310A824</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1594.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">259: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1594.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1594.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ArrayGetByRef</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1580.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">260: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1580.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="668.13" y="-1580.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="824.88" y="-1580.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="833.13" y="-1580.2" font-family="monospace" font-size="14.00" fill="#006400">MovableData</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1566.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">269: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1566.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="668.13" y="-1566.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="800.13" y="-1566.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="808.38" y="-1566.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Array_Get_Item</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1552.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">278: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1552.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1552.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1538.2" font-family="monospace" font-size="14.00" fill="#555555">279: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1538.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1524.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">280: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1524.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1524.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructMemberContext</text>
+<text xml:space="preserve" text-anchor="start" x="816.63" y="-1524.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="824.88" y="-1524.2" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/Struct/ST_DirectionFlags&#45;&gt;ST_DirectionFlags&#45;&gt;Down_3_A342412D45A32B707CD549B19E96F745</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1510.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">289: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1510.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1510.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ArrayGetByRef</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1496.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">290: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1496.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="668.13" y="-1496.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="824.88" y="-1496.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="833.13" y="-1496.2" font-family="monospace" font-size="14.00" fill="#006400">MovableData</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1482.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">299: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1482.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="668.13" y="-1482.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="800.13" y="-1482.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="808.38" y="-1482.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Array_Get_Item</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1468.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">308: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1468.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1468.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1454.2" font-family="monospace" font-size="14.00" fill="#555555">309: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1454.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1440.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">310: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1440.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1440.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructMemberContext</text>
+<text xml:space="preserve" text-anchor="start" x="816.63" y="-1440.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="824.88" y="-1440.2" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/Struct/ST_DirectionFlags&#45;&gt;ST_DirectionFlags&#45;&gt;Left_7_62EBEB2F41238B8A6A286CB94B55E26C</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1426.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">319: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1426.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1426.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ArrayGetByRef</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1412.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">320: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1412.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="668.13" y="-1412.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="824.88" y="-1412.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="833.13" y="-1412.2" font-family="monospace" font-size="14.00" fill="#006400">MovableData</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1398.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">329: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1398.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="668.13" y="-1398.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="800.13" y="-1398.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="808.38" y="-1398.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Array_Get_Item</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1384.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">338: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1384.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1384.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1370.2" font-family="monospace" font-size="14.00" fill="#555555">339: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1370.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1356.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">340: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1356.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1356.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructMemberContext</text>
+<text xml:space="preserve" text-anchor="start" x="816.63" y="-1356.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="824.88" y="-1356.2" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/Struct/ST_DirectionFlags&#45;&gt;ST_DirectionFlags&#45;&gt;Right_5_4A65B5E84C2F53E65805439F7E651C29</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1342.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">349: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1342.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1342.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ArrayGetByRef</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1328.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">350: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1328.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="668.13" y="-1328.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="824.88" y="-1328.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="833.13" y="-1328.2" font-family="monospace" font-size="14.00" fill="#006400">MovableData</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1314.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">359: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1314.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="668.13" y="-1314.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="800.13" y="-1314.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="808.38" y="-1314.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Array_Get_Item</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1300.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">368: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1300.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1300.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1286.2" font-family="monospace" font-size="14.00" fill="#555555">369: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1286.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1272.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">370: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1272.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1272.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="750.63" y="-1272.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="758.88" y="-1272.2" font-family="monospace" font-size="14.00" fill="#006400">import /Script/Engine&#45;&gt;Default__KismetArrayLibrary</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1258.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">391: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1258.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1258.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_FinalFunction</text>
+<text xml:space="preserve" text-anchor="start" x="767.13" y="-1258.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="775.38" y="-1258.2" font-family="monospace" font-size="14.00" fill="#6a0080">import /Script/Engine&#45;&gt;KismetArrayLibrary&#45;&gt;Array_Get</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1244.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">400: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1244.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1244.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="808.38" y="-1244.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="816.63" y="-1244.2" font-family="monospace" font-size="14.00" fill="#006400">IgnorePositions</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1230.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">409: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1230.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1230.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1230.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1230.2" font-family="monospace" font-size="14.00" fill="#006400">Temp_int_Array_Index_Variable</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1216.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">418: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1216.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1216.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1216.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1216.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Array_Get_Item</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1202.2" font-family="monospace" font-size="14.00" fill="#555555">428: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1202.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_Context</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1188.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">429: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1188.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1188.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ObjectConst</text>
+<text xml:space="preserve" text-anchor="start" x="750.63" y="-1188.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="758.88" y="-1188.2" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/FuncLib/Func_GetAroundPosition&#45;&gt;Default__Func_GetAroundPosition_C</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1174.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">450: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1174.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-1174.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_VirtualFunction</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1174.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1174.2" font-family="monospace" font-size="14.00" fill="#6a0080">GetAroundPositions(Index)</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1160.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">463: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1160.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1160.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1160.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1160.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_Array_Get_Item</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1146.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">472: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1146.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1146.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructMemberContext</text>
+<text xml:space="preserve" text-anchor="start" x="833.13" y="-1146.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="841.38" y="-1146.2" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/Struct/ST_Vec2Int&#45;&gt;ST_Vec2Int&#45;&gt;X_2_8C9E810F49C62717DD42EAB403DE85EC</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1132.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">481: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1132.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="668.13" y="-1132.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="800.13" y="-1132.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="808.38" y="-1132.2" font-family="monospace" font-size="14.00" fill="#006400">Size</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1118.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">490: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1118.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1118.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructMemberContext</text>
+<text xml:space="preserve" text-anchor="start" x="833.13" y="-1118.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="841.38" y="-1118.2" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/Struct/ST_Vec2Int&#45;&gt;ST_Vec2Int&#45;&gt;Y_5_0A0A307C42CE54BD21BD3981F325E677</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1104.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">499: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1104.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="668.13" y="-1104.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="800.13" y="-1104.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="808.38" y="-1104.2" font-family="monospace" font-size="14.00" fill="#006400">Size</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1090.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">508: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1090.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1090.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1090.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1090.2" font-family="monospace" font-size="14.00" fill="#006400">__WorldContext</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1076.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">517: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1076.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1076.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1076.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1076.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__ValidUp</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1062.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">526: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1062.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1062.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1062.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1062.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__Up</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1048.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">535: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1048.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1048.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1048.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1048.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__ValidDown</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1034.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">544: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1034.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1034.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1034.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1034.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__Down</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1020.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">553: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1020.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1020.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1020.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1020.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__ValidLeft</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-1006.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">562: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-1006.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-1006.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-1006.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-1006.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__Left</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-992.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">571: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-992.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-992.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-992.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-992.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__ValidRight</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-978.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">580: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-978.2" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="651.63" y="-978.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="783.63" y="-978.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="791.88" y="-978.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__Right</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-964.2" font-family="monospace" font-size="14.00" fill="#555555">590: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-964.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="717.63" y="-964.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="725.88" y="-964.2" font-family="monospace" font-size="14.00" fill="#555555">634</text>
+<text xml:space="preserve" text-anchor="start" x="577.38" y="-950.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">595: </text>
+<text xml:space="preserve" text-anchor="start" x="618.63" y="-950.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="635.13" y="-950.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="767.13" y="-950.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="775.38" y="-950.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__ValidUp</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_158&#45;&gt;MovableDataApplyIgnorePositions__block_190 -->
+<g id="edge5" class="edge">
+<title>MovableDataApplyIgnorePositions__block_158&#45;&gt;MovableDataApplyIgnorePositions__block_190:n</title>
+<path fill="none" stroke="black" d="M1225,-1784.12C1225,-1776.13 1225,-1767.72 1225,-1759.48"/>
+<polygon fill="black" stroke="black" points="1228.5,-1759.51 1225,-1749.51 1221.5,-1759.51 1228.5,-1759.51"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_763&#45;&gt;MovableDataApplyIgnorePositions__block_158 -->
+<g id="edge6" class="edge">
+<title>MovableDataApplyIgnorePositions__block_763&#45;&gt;MovableDataApplyIgnorePositions__block_158:n</title>
+<path fill="none" stroke="green" d="M1230.09,-1912.67C1227.82,-1904.53 1226.25,-1896.21 1225.5,-1887.74"/>
+<polygon fill="green" stroke="green" points="1229.01,-1887.85 1225.07,-1878.01 1222.01,-1888.16 1229.01,-1887.85"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_634 -->
+<g id="node7" class="node">
+<title>MovableDataApplyIgnorePositions__block_634</title>
+<polygon fill="#eeeeee" stroke="none" points="1233.38,-688.5 1233.38,-745 1874.62,-745 1874.62,-688.5 1233.38,-688.5"/>
+<polygon fill="none" stroke="black" points="1233.38,-722.5 1233.38,-745 1874.62,-745 1874.62,-722.5 1233.38,-722.5"/>
+<text xml:space="preserve" text-anchor="start" x="1236.38" y="-728.7" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 634</text>
+<polygon fill="none" stroke="black" points="1233.38,-688.5 1233.38,-722.5 1874.62,-722.5 1874.62,-688.5 1233.38,-688.5"/>
+<text xml:space="preserve" text-anchor="start" x="1236.38" y="-707.2" font-family="monospace" font-size="14.00" fill="#555555">634: </text>
+<text xml:space="preserve" text-anchor="start" x="1277.62" y="-707.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="1376.62" y="-707.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1384.88" y="-707.2" font-family="monospace" font-size="14.00" fill="#555555">678</text>
+<text xml:space="preserve" text-anchor="start" x="1236.38" y="-693.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">639: </text>
+<text xml:space="preserve" text-anchor="start" x="1277.62" y="-693.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1294.12" y="-693.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1426.12" y="-693.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1434.38" y="-693.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__ValidDown</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_678 -->
+<g id="node9" class="node">
+<title>MovableDataApplyIgnorePositions__block_678</title>
+<polygon fill="#eeeeee" stroke="none" points="1397.38,-431.5 1397.38,-488 2038.62,-488 2038.62,-431.5 1397.38,-431.5"/>
+<polygon fill="none" stroke="black" points="1397.38,-465.5 1397.38,-488 2038.62,-488 2038.62,-465.5 1397.38,-465.5"/>
+<text xml:space="preserve" text-anchor="start" x="1400.38" y="-471.7" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 678</text>
+<polygon fill="none" stroke="black" points="1397.38,-431.5 1397.38,-465.5 2038.62,-465.5 2038.62,-431.5 1397.38,-431.5"/>
+<text xml:space="preserve" text-anchor="start" x="1400.38" y="-450.2" font-family="monospace" font-size="14.00" fill="#555555">678: </text>
+<text xml:space="preserve" text-anchor="start" x="1441.62" y="-450.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_JumpIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="1540.62" y="-450.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1548.88" y="-450.2" font-family="monospace" font-size="14.00" fill="#555555">722</text>
+<text xml:space="preserve" text-anchor="start" x="1400.38" y="-436.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">683: </text>
+<text xml:space="preserve" text-anchor="start" x="1441.62" y="-436.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1458.12" y="-436.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1590.12" y="-436.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1598.38" y="-436.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__ValidLeft</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_634&#45;&gt;MovableDataApplyIgnorePositions__block_678 -->
+<g id="edge7" class="edge">
+<title>MovableDataApplyIgnorePositions__block_634:e&#45;&gt;MovableDataApplyIgnorePositions__block_678:n</title>
+<path fill="none" stroke="red" d="M1883.31,-716.75C1957.64,-716.75 1995.56,-710.87 2036,-648.5 2065.14,-603.56 2071.68,-567.94 2036,-528 1991.4,-478.07 1748.95,-553.27 1720.69,-502.92"/>
+<polygon fill="none" stroke="red" points="1724.15,-502.34 1718.36,-493.47 1717.35,-504.02 1724.15,-502.34"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_648 -->
+<g id="node10" class="node">
+<title>MovableDataApplyIgnorePositions__block_648</title>
+<polygon fill="#eeeeee" stroke="none" points="742.75,-532 742.75,-644.5 2019.25,-644.5 2019.25,-532 742.75,-532"/>
+<polygon fill="none" stroke="black" points="742.75,-622 742.75,-644.5 2019.25,-644.5 2019.25,-622 742.75,-622"/>
+<text xml:space="preserve" text-anchor="start" x="1063.38" y="-628.2" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 648</text>
+<polygon fill="none" stroke="black" points="742.75,-532 742.75,-622 2019.25,-622 2019.25,-532 742.75,-532"/>
+<text xml:space="preserve" text-anchor="start" x="745.75" y="-606.7" font-family="monospace" font-size="14.00" fill="#555555">648: </text>
+<text xml:space="preserve" text-anchor="start" x="787" y="-606.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="745.75" y="-592.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">649: </text>
+<text xml:space="preserve" text-anchor="start" x="787" y="-592.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="803.5" y="-592.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructMemberContext</text>
+<text xml:space="preserve" text-anchor="start" x="985" y="-592.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="993.25" y="-592.7" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/Struct/ST_DirectionFlags&#45;&gt;ST_DirectionFlags&#45;&gt;Up_1_03DC33FD4F36EB3F47C8F5AA3310A824</text>
+<text xml:space="preserve" text-anchor="start" x="745.75" y="-578.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">658: </text>
+<text xml:space="preserve" text-anchor="start" x="787" y="-578.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="820" y="-578.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ArrayGetByRef</text>
+<text xml:space="preserve" text-anchor="start" x="745.75" y="-564.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">659: </text>
+<text xml:space="preserve" text-anchor="start" x="787" y="-564.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="836.5" y="-564.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="993.25" y="-564.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1001.5" y="-564.7" font-family="monospace" font-size="14.00" fill="#006400">MovableData</text>
+<text xml:space="preserve" text-anchor="start" x="745.75" y="-550.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">668: </text>
+<text xml:space="preserve" text-anchor="start" x="787" y="-550.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="836.5" y="-550.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="968.5" y="-550.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="976.75" y="-550.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__Down</text>
+<text xml:space="preserve" text-anchor="start" x="745.75" y="-536.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">677: </text>
+<text xml:space="preserve" text-anchor="start" x="787" y="-536.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="803.5" y="-536.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_634&#45;&gt;MovableDataApplyIgnorePositions__block_648 -->
+<g id="edge8" class="edge">
+<title>MovableDataApplyIgnorePositions__block_634&#45;&gt;MovableDataApplyIgnorePositions__block_648:n</title>
+<path fill="none" stroke="green" d="M1426.45,-684.5C1407.41,-677.15 1391.82,-668.65 1384.89,-659.17"/>
+<polygon fill="green" stroke="green" points="1388.23,-658.12 1381.52,-649.92 1381.65,-660.52 1388.23,-658.12"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_604 -->
+<g id="node8" class="node">
+<title>MovableDataApplyIgnorePositions__block_604</title>
+<polygon fill="#eeeeee" stroke="none" points="566.5,-789 566.5,-901.5 1859.5,-901.5 1859.5,-789 566.5,-789"/>
+<polygon fill="none" stroke="black" points="566.5,-879 566.5,-901.5 1859.5,-901.5 1859.5,-879 566.5,-879"/>
+<text xml:space="preserve" text-anchor="start" x="895.38" y="-885.2" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 604</text>
+<polygon fill="none" stroke="black" points="566.5,-789 566.5,-879 1859.5,-879 1859.5,-789 566.5,-789"/>
+<text xml:space="preserve" text-anchor="start" x="569.5" y="-863.7" font-family="monospace" font-size="14.00" fill="#555555">604: </text>
+<text xml:space="preserve" text-anchor="start" x="610.75" y="-863.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="569.5" y="-849.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">605: </text>
+<text xml:space="preserve" text-anchor="start" x="610.75" y="-849.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="627.25" y="-849.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructMemberContext</text>
+<text xml:space="preserve" text-anchor="start" x="808.75" y="-849.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="817" y="-849.7" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/Struct/ST_DirectionFlags&#45;&gt;ST_DirectionFlags&#45;&gt;Down_3_A342412D45A32B707CD549B19E96F745</text>
+<text xml:space="preserve" text-anchor="start" x="569.5" y="-835.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">614: </text>
+<text xml:space="preserve" text-anchor="start" x="610.75" y="-835.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="643.75" y="-835.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ArrayGetByRef</text>
+<text xml:space="preserve" text-anchor="start" x="569.5" y="-821.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">615: </text>
+<text xml:space="preserve" text-anchor="start" x="610.75" y="-821.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="660.25" y="-821.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="817" y="-821.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="825.25" y="-821.7" font-family="monospace" font-size="14.00" fill="#006400">MovableData</text>
+<text xml:space="preserve" text-anchor="start" x="569.5" y="-807.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">624: </text>
+<text xml:space="preserve" text-anchor="start" x="610.75" y="-807.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="660.25" y="-807.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="792.25" y="-807.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="800.5" y="-807.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__Up</text>
+<text xml:space="preserve" text-anchor="start" x="569.5" y="-793.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">633: </text>
+<text xml:space="preserve" text-anchor="start" x="610.75" y="-793.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="627.25" y="-793.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_604&#45;&gt;MovableDataApplyIgnorePositions__block_634 -->
+<g id="edge9" class="edge">
+<title>MovableDataApplyIgnorePositions__block_604&#45;&gt;MovableDataApplyIgnorePositions__block_634:n</title>
+<path fill="none" stroke="black" d="M1525.8,-785.15C1538.55,-777.68 1547.66,-769.32 1551.69,-759.98"/>
+<polygon fill="black" stroke="black" points="1555.05,-760.99 1553.69,-750.48 1548.2,-759.54 1555.05,-760.99"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_722 -->
+<g id="node11" class="node">
+<title>MovableDataApplyIgnorePositions__block_722</title>
+<polygon fill="#eeeeee" stroke="none" points="1561.38,-174.5 1561.38,-231 2202.62,-231 2202.62,-174.5 1561.38,-174.5"/>
+<polygon fill="none" stroke="black" points="1561.38,-208.5 1561.38,-231 2202.62,-231 2202.62,-208.5 1561.38,-208.5"/>
+<text xml:space="preserve" text-anchor="start" x="1564.38" y="-214.7" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 722</text>
+<polygon fill="none" stroke="black" points="1561.38,-174.5 1561.38,-208.5 2202.62,-208.5 2202.62,-174.5 1561.38,-174.5"/>
+<text xml:space="preserve" text-anchor="start" x="1564.38" y="-193.2" font-family="monospace" font-size="14.00" fill="#555555">722: </text>
+<text xml:space="preserve" text-anchor="start" x="1605.62" y="-193.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlowIfNot</text>
+<text xml:space="preserve" text-anchor="start" x="1564.38" y="-179.2" font-family="monospace" font-size="14.00" fill="#aaaaaa">723: </text>
+<text xml:space="preserve" text-anchor="start" x="1605.62" y="-179.2" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1622.12" y="-179.2" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1754.12" y="-179.2" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1762.38" y="-179.2" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__ValidRight</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_678&#45;&gt;MovableDataApplyIgnorePositions__block_722 -->
+<g id="edge10" class="edge">
+<title>MovableDataApplyIgnorePositions__block_678:e&#45;&gt;MovableDataApplyIgnorePositions__block_722:n</title>
+<path fill="none" stroke="red" d="M2047.31,-459.75C2124.5,-459.75 2164.48,-455.91 2207,-391.5 2236.5,-346.8 2242.72,-310.9 2207,-271 2161.37,-220.04 1913.62,-297.52 1884.75,-246.15"/>
+<polygon fill="none" stroke="red" points="1888.15,-245.34 1882.36,-236.47 1881.36,-247.02 1888.15,-245.34"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_692 -->
+<g id="node12" class="node">
+<title>MovableDataApplyIgnorePositions__block_692</title>
+<polygon fill="#eeeeee" stroke="none" points="888.38,-275 888.38,-387.5 2189.62,-387.5 2189.62,-275 888.38,-275"/>
+<polygon fill="none" stroke="black" points="888.38,-365 888.38,-387.5 2189.62,-387.5 2189.62,-365 888.38,-365"/>
+<text xml:space="preserve" text-anchor="start" x="1221.38" y="-371.2" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 692</text>
+<polygon fill="none" stroke="black" points="888.38,-275 888.38,-365 2189.62,-365 2189.62,-275 888.38,-275"/>
+<text xml:space="preserve" text-anchor="start" x="891.38" y="-349.7" font-family="monospace" font-size="14.00" fill="#555555">692: </text>
+<text xml:space="preserve" text-anchor="start" x="932.62" y="-349.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="891.38" y="-335.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">693: </text>
+<text xml:space="preserve" text-anchor="start" x="932.62" y="-335.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="949.12" y="-335.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructMemberContext</text>
+<text xml:space="preserve" text-anchor="start" x="1130.62" y="-335.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1138.88" y="-335.7" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/Struct/ST_DirectionFlags&#45;&gt;ST_DirectionFlags&#45;&gt;Right_5_4A65B5E84C2F53E65805439F7E651C29</text>
+<text xml:space="preserve" text-anchor="start" x="891.38" y="-321.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">702: </text>
+<text xml:space="preserve" text-anchor="start" x="932.62" y="-321.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="965.62" y="-321.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ArrayGetByRef</text>
+<text xml:space="preserve" text-anchor="start" x="891.38" y="-307.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">703: </text>
+<text xml:space="preserve" text-anchor="start" x="932.62" y="-307.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="982.12" y="-307.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1138.88" y="-307.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1147.12" y="-307.7" font-family="monospace" font-size="14.00" fill="#006400">MovableData</text>
+<text xml:space="preserve" text-anchor="start" x="891.38" y="-293.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">712: </text>
+<text xml:space="preserve" text-anchor="start" x="932.62" y="-293.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="982.12" y="-293.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1114.12" y="-293.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1122.38" y="-293.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__Left</text>
+<text xml:space="preserve" text-anchor="start" x="891.38" y="-279.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">721: </text>
+<text xml:space="preserve" text-anchor="start" x="932.62" y="-279.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="949.12" y="-279.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_678&#45;&gt;MovableDataApplyIgnorePositions__block_692 -->
+<g id="edge11" class="edge">
+<title>MovableDataApplyIgnorePositions__block_678&#45;&gt;MovableDataApplyIgnorePositions__block_692:n</title>
+<path fill="none" stroke="green" d="M1584.63,-427.53C1565.44,-420.25 1549.83,-411.8 1542.89,-402.26"/>
+<polygon fill="green" stroke="green" points="1546.2,-401.14 1539.51,-392.92 1539.62,-403.52 1546.2,-401.14"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_648&#45;&gt;MovableDataApplyIgnorePositions__block_678 -->
+<g id="edge12" class="edge">
+<title>MovableDataApplyIgnorePositions__block_648&#45;&gt;MovableDataApplyIgnorePositions__block_678:n</title>
+<path fill="none" stroke="black" d="M1689.85,-528.01C1702.43,-520.64 1711.47,-512.41 1715.56,-503.22"/>
+<polygon fill="black" stroke="black" points="1718.97,-503.99 1717.68,-493.48 1712.13,-502.51 1718.97,-503.99"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_732 -->
+<g id="node13" class="node">
+<title>MovableDataApplyIgnorePositions__block_732</title>
+<polygon fill="#eeeeee" stroke="none" points="1235.5,-4 1235.5,-130.5 2528.5,-130.5 2528.5,-4 1235.5,-4"/>
+<polygon fill="none" stroke="black" points="1235.5,-108 1235.5,-130.5 2528.5,-130.5 2528.5,-108 1235.5,-108"/>
+<text xml:space="preserve" text-anchor="start" x="1564.38" y="-114.2" font-family="monospace" font-size="14.00">Func_MovableDataApplyIgnorePositions_C::MovableDataApplyIgnorePositions @ 732</text>
+<polygon fill="none" stroke="black" points="1235.5,-4 1235.5,-108 2528.5,-108 2528.5,-4 1235.5,-4"/>
+<text xml:space="preserve" text-anchor="start" x="1238.5" y="-92.7" font-family="monospace" font-size="14.00" fill="#555555">732: </text>
+<text xml:space="preserve" text-anchor="start" x="1279.75" y="-92.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LetBool</text>
+<text xml:space="preserve" text-anchor="start" x="1238.5" y="-78.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">733: </text>
+<text xml:space="preserve" text-anchor="start" x="1279.75" y="-78.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1296.25" y="-78.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_StructMemberContext</text>
+<text xml:space="preserve" text-anchor="start" x="1477.75" y="-78.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1486" y="-78.7" font-family="monospace" font-size="14.00" fill="#006400">import /Game/LSI/Games/LSI_Base/Blueprint/Struct/ST_DirectionFlags&#45;&gt;ST_DirectionFlags&#45;&gt;Left_7_62EBEB2F41238B8A6A286CB94B55E26C</text>
+<text xml:space="preserve" text-anchor="start" x="1238.5" y="-64.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">742: </text>
+<text xml:space="preserve" text-anchor="start" x="1279.75" y="-64.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1312.75" y="-64.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_ArrayGetByRef</text>
+<text xml:space="preserve" text-anchor="start" x="1238.5" y="-50.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">743: </text>
+<text xml:space="preserve" text-anchor="start" x="1279.75" y="-50.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1329.25" y="-50.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalOutVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1486" y="-50.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1494.25" y="-50.7" font-family="monospace" font-size="14.00" fill="#006400">MovableData</text>
+<text xml:space="preserve" text-anchor="start" x="1238.5" y="-36.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">752: </text>
+<text xml:space="preserve" text-anchor="start" x="1279.75" y="-36.7" font-family="monospace" font-size="14.00">┬á┬á┬á┬á┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1329.25" y="-36.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_LocalVariable</text>
+<text xml:space="preserve" text-anchor="start" x="1461.25" y="-36.7" font-family="monospace" font-size="14.00"> </text>
+<text xml:space="preserve" text-anchor="start" x="1469.5" y="-36.7" font-family="monospace" font-size="14.00" fill="#006400">CallFunc_GetAroundPositions_Index__Right</text>
+<text xml:space="preserve" text-anchor="start" x="1238.5" y="-22.7" font-family="monospace" font-size="14.00" fill="#aaaaaa">761: </text>
+<text xml:space="preserve" text-anchor="start" x="1279.75" y="-22.7" font-family="monospace" font-size="14.00">┬á┬á</text>
+<text xml:space="preserve" text-anchor="start" x="1296.25" y="-22.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_False</text>
+<text xml:space="preserve" text-anchor="start" x="1238.5" y="-8.7" font-family="monospace" font-size="14.00" fill="#555555">762: </text>
+<text xml:space="preserve" text-anchor="start" x="1279.75" y="-8.7" font-family="monospace" font-size="14.00" fill="#0055aa">EX_PopExecutionFlow</text>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_722&#45;&gt;MovableDataApplyIgnorePositions__block_732 -->
+<g id="edge13" class="edge">
+<title>MovableDataApplyIgnorePositions__block_722&#45;&gt;MovableDataApplyIgnorePositions__block_732:n</title>
+<path fill="none" stroke="green" d="M1882,-170.61C1882,-162.8 1882,-154.23 1882,-145.81"/>
+<polygon fill="green" stroke="green" points="1885.5,-146.01 1882,-136.01 1878.5,-146.01 1885.5,-146.01"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_692&#45;&gt;MovableDataApplyIgnorePositions__block_722 -->
+<g id="edge14" class="edge">
+<title>MovableDataApplyIgnorePositions__block_692&#45;&gt;MovableDataApplyIgnorePositions__block_722:n</title>
+<path fill="none" stroke="black" d="M1853.93,-271.13C1866.62,-263.67 1875.69,-255.32 1879.7,-245.98"/>
+<polygon fill="black" stroke="black" points="1883.06,-246.99 1881.69,-236.48 1876.21,-245.55 1883.06,-246.99"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_5&#45;&gt;MovableDataApplyIgnorePositions__block_763 -->
+<g id="edge15" class="edge">
+<title>MovableDataApplyIgnorePositions__block_5&#45;&gt;MovableDataApplyIgnorePositions__block_763:n</title>
+<path fill="none" stroke="black" d="M1389,-2293.06C1389,-2284.94 1389,-2276.59 1389,-2268.41"/>
+<polygon fill="black" stroke="black" points="1392.5,-2268.51 1389,-2258.51 1385.5,-2268.51 1392.5,-2268.51"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_190&#45;&gt;MovableDataApplyIgnorePositions__block_634 -->
+<g id="edge16" class="edge">
+<title>MovableDataApplyIgnorePositions__block_190:e&#45;&gt;MovableDataApplyIgnorePositions__block_634:n</title>
+<path fill="none" stroke="red" d="M1884.42,-1344.75C2133.22,-1344.75 2046.67,-966.97 1877,-785 1830.63,-735.27 1585.31,-811.27 1556.72,-760.1"/>
+<polygon fill="none" stroke="red" points="1560.14,-759.35 1554.36,-750.47 1553.34,-761.02 1560.14,-759.35"/>
+</g>
+<!-- MovableDataApplyIgnorePositions__block_190&#45;&gt;MovableDataApplyIgnorePositions__block_604 -->
+<g id="edge17" class="edge">
+<title>MovableDataApplyIgnorePositions__block_190&#45;&gt;MovableDataApplyIgnorePositions__block_604:n</title>
+<path fill="none" stroke="green" d="M1213.13,-941.65C1213.07,-933.37 1213.03,-925.14 1213.01,-916.98"/>
+<polygon fill="green" stroke="green" points="1216.51,-917.01 1213,-907.01 1209.51,-917.02 1216.51,-917.01"/>
+</g>
+</g>
+</svg>
+</div>
+    </div>
+  </div>
+
+  <div id="minimap">
+    <div id="minimap-content">
+      <canvas id="minimap-canvas"></canvas>
+      <div id="minimap-viewport"></div>
+    </div>
+  </div>
+
+  <div id="hint">
+    <kbd>Wheel</kbd> zoom &nbsp;
+    <kbd>Drag</kbd> pan
+  </div>
+
+  <div id="drop-overlay">Drop SVG file here</div>
+
+  <script>
+    const fileInput = document.getElementById('file-input');
+    const viewport = document.getElementById('viewport');
+    const svgWrapper = document.getElementById('svg-wrapper');
+    const svgContainer = document.getElementById('svg-container');
+    const zoomLevelEl = document.getElementById('zoom-level');
+    const searchInput = document.getElementById('search-input');
+    const searchInfo = document.getElementById('search-info');
+    const emptyState = document.getElementById('empty-state');
+    const dropOverlay = document.getElementById('drop-overlay');
+    const darkModeToggle = document.getElementById('dark-mode-toggle');
+    const minimapToggle = document.getElementById('minimap-toggle');
+    const minimap = document.getElementById('minimap');
+    const minimapContent = document.getElementById('minimap-content');
+    const minimapCanvas = document.getElementById('minimap-canvas');
+    const minimapViewport = document.getElementById('minimap-viewport');
+
+    let scale = 1;
+    let darkMode = false;
+    let minimapVisible = true;
+    let svgElement = null;
+    let svgWidth = 0;
+    let svgHeight = 0;
+    let minimapImageData = null; // Cached rasterized SVG
+
+    // Panning state
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let scrollStartX = 0;
+    let scrollStartY = 0;
+
+    // Minimap drag state
+    let isMinimapDragging = false;
+    let minimapDragOffsetX = 0;
+    let minimapDragOffsetY = 0;
+
+    // Search state
+    let searchMatches = [];
+    let currentMatchIndex = -1;
+    let highlightGroup = null;
+    let searchDebounceTimer = null;
+
+    const MIN_SCALE = 0.1;
+    const MAX_SCALE = 5;
+
+    // === File Loading ===
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) loadSvgFile(file);
+    });
+
+    // Examples dropdowns (toolbar and empty state)
+    const exampleFiles = [
+      'vm_flow.svg',
+      'PLS_Base.svg',
+      'dominion.svg',
+      'blueprint.svg'
+    ];
+
+    document.querySelectorAll('.examples-select').forEach(select => {
+      // Populate options
+      exampleFiles.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file;
+        option.textContent = file;
+        select.appendChild(option);
+      });
+
+      // Handle selection
+      select.addEventListener('change', async (e) => {
+        const file = e.target.value;
+        if (!file) return;
+
+        try {
+          const response = await fetch(`examples/${file}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${file}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+
+        // Reset dropdown to placeholder
+        select.value = '';
+      });
+    });
+
+    // Empty state file button
+    document.getElementById('empty-file-btn').addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    // Drag and drop
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.add('active');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      if (e.target === dropOverlay) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropOverlay.classList.remove('active');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.svg')) {
+        loadSvgFile(file);
+      }
+    });
+
+    function loadSvgFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const svgText = e.target.result;
+        loadSvgContent(svgText);
+        document.title = `SVG Viewer - ${file.name}`;
+      };
+      reader.readAsText(file);
+    }
+
+    function loadSvgContent(svgText) {
+      // Clear previous content
+      svgContainer.innerHTML = svgText;
+      svgElement = svgContainer.querySelector('svg');
+
+      if (!svgElement) {
+        alert('Invalid SVG file');
+        return;
+      }
+
+      // Show viewport, hide empty state
+      emptyState.classList.add('hidden');
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap
+      initMinimap(svgText);
+    }
+
+    // === Zoom Controls ===
+
+    document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.25));
+    document.getElementById('zoom-out').addEventListener('click', () => zoomBy(0.8));
+    document.getElementById('zoom-reset').addEventListener('click', () => setZoom(1));
+
+    // === Dark Mode Toggle ===
+
+    darkModeToggle.addEventListener('click', toggleDarkMode);
+
+    function toggleDarkMode() {
+      darkMode = !darkMode;
+      svgContainer.classList.toggle('dark-mode', darkMode);
+      minimapContent.classList.toggle('dark-mode', darkMode);
+      darkModeToggle.classList.toggle('active', darkMode);
+    }
+
+    // === Minimap ===
+
+    minimapToggle.addEventListener('click', toggleMinimap);
+
+    function toggleMinimap() {
+      minimapVisible = !minimapVisible;
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+    }
+
+    function initMinimap(svgText) {
+      // Calculate minimap size to fit within bounds while preserving aspect ratio
+      const maxWidth = 400;
+      const maxHeight = 600;
+      const aspectRatio = svgWidth / svgHeight;
+
+      let mmWidth, mmHeight;
+      if (aspectRatio > maxWidth / maxHeight) {
+        // Width constrained
+        mmWidth = maxWidth;
+        mmHeight = maxWidth / aspectRatio;
+      } else {
+        // Height constrained
+        mmHeight = maxHeight;
+        mmWidth = maxHeight * aspectRatio;
+      }
+
+      minimap.style.width = mmWidth + 'px';
+      minimap.style.height = mmHeight + 'px';
+
+      // Set canvas size (use higher resolution for retina displays)
+      const dpr = window.devicePixelRatio || 1;
+      minimapCanvas.width = mmWidth * dpr;
+      minimapCanvas.height = mmHeight * dpr;
+      minimapCanvas.style.width = mmWidth + 'px';
+      minimapCanvas.style.height = mmHeight + 'px';
+
+      // Show minimap
+      minimap.classList.toggle('visible', minimapVisible);
+      minimapToggle.classList.toggle('active', minimapVisible);
+
+      // Sync dark mode
+      minimapContent.classList.toggle('dark-mode', darkMode);
+
+      // Rasterize SVG to canvas
+      rasterizeSvgToCanvas(svgText, mmWidth, mmHeight, dpr);
+
+      // Update viewport indicator
+      updateMinimapViewport();
+    }
+
+    function rasterizeSvgToCanvas(svgText, width, height, dpr) {
+      const img = new Image();
+      const blob = new Blob([svgText], {type: 'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+
+      img.onload = () => {
+        const ctx = minimapCanvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+
+        // Cache the image data for potential re-use
+        minimapImageData = ctx.getImageData(0, 0, minimapCanvas.width, minimapCanvas.height);
+      };
+
+      img.onerror = () => {
+        console.error('Failed to rasterize SVG for minimap');
+        URL.revokeObjectURL(url);
+      };
+
+      img.src = url;
+    }
+
+    function updateMinimapViewport() {
+      if (!svgElement || !minimapVisible) return;
+
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+
+      // Padding in the main viewport
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Current scroll position relative to SVG (not padding)
+      const scrollX = viewport.scrollLeft - padX;
+      const scrollY = viewport.scrollTop - padY;
+
+      // Visible area in SVG coordinates
+      const visibleX = scrollX / scale;
+      const visibleY = scrollY / scale;
+      const visibleW = vpRect.width / scale;
+      const visibleH = vpRect.height / scale;
+
+      // Scale to minimap coordinates
+      const mmScaleX = mmRect.width / svgWidth;
+      const mmScaleY = mmRect.height / svgHeight;
+
+      // Position and size the viewport indicator (no clamping - allow overflow)
+      const left = visibleX * mmScaleX;
+      const top = visibleY * mmScaleY;
+      const width = visibleW * mmScaleX;
+      const height = visibleH * mmScaleY;
+
+      minimapViewport.style.left = left + 'px';
+      minimapViewport.style.top = top + 'px';
+      minimapViewport.style.width = Math.max(10, width) + 'px';
+      minimapViewport.style.height = Math.max(10, height) + 'px';
+    }
+
+    // Update minimap on scroll
+    viewport.addEventListener('scroll', updateMinimapViewport);
+
+    // Minimap click/drag to navigate
+    minimapContent.addEventListener('mousedown', (e) => {
+      isMinimapDragging = true;
+
+      // Calculate offset so dragging feels natural
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = minimapViewport.getBoundingClientRect();
+
+      // Check if clicking inside the viewport indicator
+      const inViewport = e.clientX >= vpRect.left && e.clientX <= vpRect.right &&
+        e.clientY >= vpRect.top && e.clientY <= vpRect.bottom;
+
+      if (inViewport) {
+        // Drag from current position
+        minimapDragOffsetX = e.clientX - vpRect.left;
+        minimapDragOffsetY = e.clientY - vpRect.top;
+      } else {
+        // Click outside - center viewport on click point, then allow drag
+        const vpW = vpRect.width;
+        const vpH = vpRect.height;
+        minimapDragOffsetX = vpW / 2;
+        minimapDragOffsetY = vpH / 2;
+        navigateMinimapTo(e, true);
+      }
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isMinimapDragging) return;
+      navigateMinimapTo(e, true);
+    });
+
+    document.addEventListener('mouseup', () => {
+      isMinimapDragging = false;
+    });
+
+    function navigateMinimapTo(e, useDragOffset = false) {
+      const mmRect = minimapContent.getBoundingClientRect();
+      const vpRect = viewport.getBoundingClientRect();
+      const padX = vpRect.width;
+      const padY = vpRect.height;
+
+      // Mouse position in minimap
+      let mmX = e.clientX - mmRect.left;
+      let mmY = e.clientY - mmRect.top;
+
+      if (useDragOffset) {
+        // Adjust for drag offset (top-left of viewport indicator)
+        mmX -= minimapDragOffsetX;
+        mmY -= minimapDragOffsetY;
+      } else {
+        // Click centers the viewport on that point
+        const vpW = (vpRect.width / scale) * (mmRect.width / svgWidth);
+        const vpH = (vpRect.height / scale) * (mmRect.height / svgHeight);
+        mmX -= vpW / 2;
+        mmY -= vpH / 2;
+      }
+
+      // Convert to SVG coordinates
+      const svgX = (mmX / mmRect.width) * svgWidth;
+      const svgY = (mmY / mmRect.height) * svgHeight;
+
+      // Scroll to position (accounting for padding)
+      viewport.scrollLeft = svgX * scale + padX;
+      viewport.scrollTop = svgY * scale + padY;
+    }
+
+    function zoomBy(factor, centerX, centerY) {
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor));
+      if (newScale === scale) return;
+
+      const rect = viewport.getBoundingClientRect();
+      const oldPadX = rect.width;
+      const oldPadY = rect.height;
+
+      // If center point provided, zoom towards it
+      if (centerX !== undefined && centerY !== undefined) {
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates (accounting for padding)
+        const svgX = (scrollX + centerX - rect.left - oldPadX) / scale;
+        const svgY = (scrollY + centerY - rect.top - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        // New padding after zoom (viewport size doesn't change)
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        // Scroll to keep the point under cursor
+        viewport.scrollLeft = svgX * scale + newPadX - (centerX - rect.left);
+        viewport.scrollTop = svgY * scale + newPadY - (centerY - rect.top);
+      } else {
+        // Zoom towards center of viewport
+        const viewCenterX = rect.width / 2;
+        const viewCenterY = rect.height / 2;
+        const scrollX = viewport.scrollLeft;
+        const scrollY = viewport.scrollTop;
+
+        // Point in SVG coordinates
+        const svgX = (scrollX + viewCenterX - oldPadX) / scale;
+        const svgY = (scrollY + viewCenterY - oldPadY) / scale;
+
+        scale = newScale;
+        updateZoom();
+
+        const newPadX = rect.width;
+        const newPadY = rect.height;
+
+        viewport.scrollLeft = svgX * scale + newPadX - viewCenterX;
+        viewport.scrollTop = svgY * scale + newPadY - viewCenterY;
+      }
+    }
+
+    function setZoom(newScale) {
+      scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+      updateZoom();
+    }
+
+    function centerSvg() {
+      const rect = viewport.getBoundingClientRect();
+      const padX = rect.width;
+      const padY = rect.height;
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      // Scroll so SVG is centered in viewport
+      viewport.scrollLeft = padX + (scaledW - rect.width) / 2;
+      viewport.scrollTop = padY + (scaledH - rect.height) / 2;
+    }
+
+    function updateZoom() {
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportW = viewportRect.width;
+      const viewportH = viewportRect.height;
+
+      // Padding allows the SVG to be scrolled so it can be centered (or anywhere)
+      const padX = viewportW;
+      const padY = viewportH;
+
+      const scaledW = svgWidth * scale;
+      const scaledH = svgHeight * scale;
+
+      svgContainer.style.transform = `scale(${scale})`;
+      svgContainer.style.width = scaledW + 'px';
+      svgContainer.style.height = scaledH + 'px';
+
+      // Wrapper includes padding on all sides
+      svgWrapper.style.paddingLeft = padX + 'px';
+      svgWrapper.style.paddingTop = padY + 'px';
+      svgWrapper.style.paddingRight = padX + 'px';
+      svgWrapper.style.paddingBottom = padY + 'px';
+
+      zoomLevelEl.textContent = Math.round(scale * 100) + '%';
+
+      // Update minimap viewport indicator
+      updateMinimapViewport();
+    }
+
+    // Mouse wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      zoomBy(factor, e.clientX, e.clientY);
+    }, {passive: false});
+
+    // === Panning ===
+
+    function isTextElement(el) {
+      while (el && el !== viewport) {
+        if (el.tagName === 'text' || el.tagName === 'tspan') return true;
+        el = el.parentElement;
+      }
+      return false;
+    }
+
+    viewport.addEventListener('mousedown', (e) => {
+      // Middle mouse always pans
+      if (e.button === 1) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+        return;
+      }
+
+      // Left click: pan if not on text, otherwise let browser handle selection
+      if (e.button === 0 && !isTextElement(e.target)) {
+        e.preventDefault();
+        isPanning = true;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        scrollStartX = viewport.scrollLeft;
+        scrollStartY = viewport.scrollTop;
+        viewport.classList.add('panning');
+      }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isPanning) return;
+      const dx = e.clientX - panStartX;
+      const dy = e.clientY - panStartY;
+      viewport.scrollLeft = scrollStartX - dx;
+      viewport.scrollTop = scrollStartY - dy;
+    });
+
+    document.addEventListener('mouseup', () => {
+      isPanning = false;
+      viewport.classList.remove('panning');
+    });
+
+    // === Touch Support (pinch zoom only, panning is native scroll) ===
+
+    let touchStartDist = 0;
+    let touchStartScale = 1;
+    let lastTouchCenter = null;
+
+    viewport.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        touchStartDist = getTouchDistance(e.touches);
+        touchStartScale = scale;
+        lastTouchCenter = getTouchCenter(e.touches);
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDistance(e.touches);
+        const center = getTouchCenter(e.touches);
+        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, touchStartScale * (dist / touchStartDist)));
+
+        if (newScale !== scale) {
+          // Zoom towards pinch center
+          const rect = viewport.getBoundingClientRect();
+          const padX = rect.width;
+          const padY = rect.height;
+
+          const svgX = (viewport.scrollLeft + center.x - rect.left - padX) / scale;
+          const svgY = (viewport.scrollTop + center.y - rect.top - padY) / scale;
+
+          scale = newScale;
+          updateZoom();
+
+          viewport.scrollLeft = svgX * scale + padX - (center.x - rect.left);
+          viewport.scrollTop = svgY * scale + padY - (center.y - rect.top);
+        }
+
+        lastTouchCenter = center;
+      }
+    }, {passive: false});
+
+    viewport.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) {
+        touchStartDist = 0;
+        lastTouchCenter = null;
+      }
+    });
+
+    function getTouchDistance(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getTouchCenter(touches) {
+      return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2
+      };
+    }
+
+    // === Search ===
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(performSearch, 150);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          navigateSearch(-1);
+        } else {
+          navigateSearch(1);
+        }
+      } else if (e.key === 'Escape') {
+        searchInput.blur();
+        clearSearch();
+      }
+    });
+
+    document.getElementById('search-prev').addEventListener('click', () => navigateSearch(-1));
+    document.getElementById('search-next').addEventListener('click', () => navigateSearch(1));
+
+    // CSS Custom Highlight API highlights
+    let searchResultsHighlight = null;
+    let searchCurrentHighlight = null;
+
+    // Initialize highlights if API is available
+    if (CSS.highlights) {
+      searchResultsHighlight = new Highlight();
+      searchCurrentHighlight = new Highlight();
+      CSS.highlights.set('search-results', searchResultsHighlight);
+      CSS.highlights.set('search-current', searchCurrentHighlight);
+    }
+
+    function performSearch() {
+      if (!svgElement) return;
+
+      const query = searchInput.value.trim();
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+
+      if (!query) {
+        updateSearchInfo();
+        searchInput.classList.remove('invalid');
+        return;
+      }
+
+      // Try to compile regex
+      let regex;
+      try {
+        regex = new RegExp(query, 'gi');
+        searchInput.classList.remove('invalid');
+      } catch (e) {
+        // Invalid regex
+        searchInput.classList.add('invalid');
+        updateSearchInfo();
+        return;
+      }
+
+      // Find all text elements containing matches
+      const textElements = svgElement.querySelectorAll('text');
+      textElements.forEach((textEl) => {
+        const content = textEl.textContent || '';
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        let match;
+        regex.lastIndex = 0; // Reset regex state
+        while ((match = regex.exec(content)) !== null) {
+          // Create range for this match
+          try {
+            const range = new Range();
+            range.setStart(textNode, match.index);
+            range.setEnd(textNode, match.index + match[0].length);
+
+            searchMatches.push({
+              element: textEl,
+              start: match.index,
+              length: match[0].length,
+              text: match[0],
+              range: range
+            });
+          } catch (e) {
+            // Range creation failed, skip this match
+          }
+
+          // Prevent infinite loop on zero-length matches
+          if (match[0].length === 0) regex.lastIndex++;
+        }
+      });
+
+      // Add all ranges to the highlight (if API available)
+      if (searchResultsHighlight) {
+        searchMatches.forEach(match => {
+          searchResultsHighlight.add(match.range);
+        });
+      } else {
+        // Fallback: use SVG rects
+        searchMatches.forEach((match, index) => {
+          const rect = createHighlightRect(match);
+          if (rect) {
+            rect.dataset.index = index;
+            highlightGroup.appendChild(rect);
+          }
+        });
+      }
+
+      updateSearchInfo();
+
+      // Navigate to first match (don't select - user is still typing)
+      if (searchMatches.length > 0) {
+        currentMatchIndex = 0;
+        highlightCurrentMatch();
+        scrollToCurrentMatch(false);
+      }
+    }
+
+    function createHighlightRect(match) {
+      try {
+        const textEl = match.element;
+        const fullBbox = textEl.getBBox();
+        const content = textEl.textContent || '';
+
+        // Calculate approximate character width
+        const charWidth = fullBbox.width / content.length;
+
+        // Calculate highlight bounds for the matched portion
+        const x = fullBbox.x + (match.start * charWidth);
+        const width = match.length * charWidth;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x - 1);
+        rect.setAttribute('y', fullBbox.y - 2);
+        rect.setAttribute('width', width + 2);
+        rect.setAttribute('height', fullBbox.height + 4);
+        rect.classList.add('search-highlight');
+
+        // Apply transforms from parent elements
+        let transform = '';
+        let el = textEl;
+        while (el && el !== svgElement) {
+          const t = el.getAttribute('transform');
+          if (t) transform = t + ' ' + transform;
+          el = el.parentElement;
+        }
+        if (transform) {
+          rect.setAttribute('transform', transform);
+        }
+
+        return rect;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function clearHighlights() {
+      // Clear CSS Custom Highlights
+      if (searchResultsHighlight) {
+        searchResultsHighlight.clear();
+      }
+      if (searchCurrentHighlight) {
+        searchCurrentHighlight.clear();
+      }
+      // Clear SVG rect fallback
+      if (highlightGroup) {
+        highlightGroup.innerHTML = '';
+      }
+    }
+
+    function clearSearch() {
+      searchInput.value = '';
+      clearHighlights();
+      searchMatches = [];
+      currentMatchIndex = -1;
+      updateSearchInfo();
+    }
+
+    function navigateSearch(direction) {
+      if (searchMatches.length === 0) return;
+
+      currentMatchIndex += direction;
+      if (currentMatchIndex >= searchMatches.length) {
+        currentMatchIndex = 0;
+      } else if (currentMatchIndex < 0) {
+        currentMatchIndex = searchMatches.length - 1;
+      }
+
+      highlightCurrentMatch();
+      scrollToCurrentMatch(true); // Select text on explicit navigation
+    }
+
+    function highlightCurrentMatch() {
+      if (searchCurrentHighlight) {
+        // Update current highlight
+        searchCurrentHighlight.clear();
+        if (currentMatchIndex >= 0 && currentMatchIndex < searchMatches.length) {
+          searchCurrentHighlight.add(searchMatches[currentMatchIndex].range);
+        }
+      } else {
+        // Fallback: toggle class on SVG rects
+        const rects = highlightGroup.querySelectorAll('rect');
+        rects.forEach((rect, i) => {
+          rect.classList.toggle('current', i === currentMatchIndex);
+        });
+      }
+      updateSearchInfo();
+    }
+
+    function scrollToCurrentMatch(shouldSelect = false) {
+      if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
+
+      const match = searchMatches[currentMatchIndex];
+      const textEl = match.element;
+      try {
+        const bbox = textEl.getBBox();
+
+        // Get cumulative transform
+        let el = textEl;
+        let matrix = svgElement.createSVGMatrix();
+        const transforms = [];
+        while (el && el !== svgElement) {
+          const t = el.transform?.baseVal?.consolidate()?.matrix;
+          if (t) transforms.unshift(t);
+          el = el.parentElement;
+        }
+        transforms.forEach(t => {
+          matrix = matrix.multiply(t);
+        });
+
+        // Transform the center point
+        const centerX = bbox.x + bbox.width / 2;
+        const centerY = bbox.y + bbox.height / 2;
+        const point = svgElement.createSVGPoint();
+        point.x = centerX;
+        point.y = centerY;
+        const transformed = point.matrixTransform(matrix);
+
+        // Convert to screen coordinates and scroll (accounting for padding)
+        const viewportRect = viewport.getBoundingClientRect();
+        const padX = viewportRect.width;
+        const padY = viewportRect.height;
+
+        const screenX = transformed.x * scale + padX;
+        const screenY = transformed.y * scale + padY;
+
+        const targetScrollX = screenX - viewportRect.width / 2;
+        const targetScrollY = screenY - viewportRect.height / 2;
+
+        viewport.scrollTo({
+          left: targetScrollX,
+          top: targetScrollY,
+          behavior: 'smooth'
+        });
+
+        // Only select text on explicit navigation (Enter/buttons), not while typing
+        if (shouldSelect) {
+          selectMatchedText(match);
+        }
+      } catch (e) {
+        // Fallback: try to scroll the element into view
+        textEl.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'center'});
+      }
+    }
+
+    function selectMatchedText(match) {
+      try {
+        const textEl = match.element;
+        const textNode = textEl.firstChild;
+        if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.setStart(textNode, match.start);
+        range.setEnd(textNode, match.start + match.length);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch (e) {
+        // Selection not supported or failed
+      }
+    }
+
+    function updateSearchInfo() {
+      if (searchMatches.length === 0) {
+        searchInfo.textContent = searchInput.value ? 'No matches' : '0 / 0';
+      } else {
+        searchInfo.textContent = `${currentMatchIndex + 1} / ${searchMatches.length}`;
+      }
+    }
+
+    // === Keyboard Shortcuts ===
+
+    document.addEventListener('keydown', (e) => {
+      // Don't handle shortcuts if typing in search
+      if (document.activeElement === searchInput) return;
+
+      // Zoom shortcuts
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        zoomBy(1.25);
+      } else if (e.key === '-') {
+        e.preventDefault();
+        zoomBy(0.8);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setZoom(1);
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        toggleDarkMode();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        toggleMinimap();
+      }
+    });
+
+    // === Embedded SVG Support ===
+
+    function initializeEmbeddedSvg() {
+      // Check if an SVG is already present in the container (embedded at build time)
+      svgElement = svgContainer.querySelector('svg');
+      if (!svgElement) return false;
+
+      // Hide file selection UI since this is a self-contained viewer
+      const fileGroup = document.querySelector('#toolbar .group:first-child');
+      if (fileGroup) fileGroup.style.display = 'none';
+      emptyState.style.display = 'none';
+
+      // Show viewport
+      viewport.style.display = 'block';
+
+      // Get SVG dimensions
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/\s+/).map(parseFloat);
+        svgWidth = parts[2];
+        svgHeight = parts[3];
+      } else {
+        svgWidth = parseFloat(svgElement.getAttribute('width')) || svgElement.getBoundingClientRect().width;
+        svgHeight = parseFloat(svgElement.getAttribute('height')) || svgElement.getBoundingClientRect().height;
+      }
+
+      // Set explicit dimensions on SVG for proper scaling
+      svgElement.style.width = svgWidth + 'px';
+      svgElement.style.height = svgHeight + 'px';
+
+      // Create highlight group for search results
+      highlightGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      highlightGroup.setAttribute('id', 'search-highlights');
+      svgElement.insertBefore(highlightGroup, svgElement.firstChild);
+
+      // Reset zoom and scroll
+      scale = 1;
+      updateZoom();
+
+      // Scroll to show top-left of SVG (accounting for padding)
+      const rect = viewport.getBoundingClientRect();
+      viewport.scrollTo(rect.width, rect.height);
+
+      // Clear search
+      clearSearch();
+
+      // Initialize minimap - serialize SVG for rasterization
+      const svgText = new XMLSerializer().serializeToString(svgElement);
+      initMinimap(svgText);
+
+      return true;
+    }
+
+    // Check for embedded SVG on startup
+    const hasEmbeddedSvg = initializeEmbeddedSvg();
+
+    // === URL Hash Loading ===
+
+    async function loadFromHash() {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return;
+
+      const params = new URLSearchParams(hash);
+
+      // Check for url= parameter
+      const url = params.get('url');
+      if (url) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            // Extract filename from URL for title
+            const filename = url.split('/').pop() || 'remote';
+            document.title = `SVG Viewer - ${filename}`;
+          } else {
+            console.error('Failed to load SVG from URL:', response.status);
+          }
+        } catch (err) {
+          console.error('Failed to load SVG from URL:', err);
+        }
+        return;
+      }
+
+      // Check for example= parameter
+      const example = params.get('example');
+      if (example && exampleFiles.includes(example)) {
+        try {
+          const response = await fetch(`examples/${example}`);
+          if (response.ok) {
+            const svgText = await response.text();
+            loadSvgContent(svgText);
+            document.title = `SVG Viewer - ${example}`;
+          }
+        } catch (err) {
+          console.error('Failed to load example:', err);
+        }
+      }
+    }
+
+    // Only load from hash if no embedded SVG
+    if (!hasEmbeddedSvg) {
+      loadFromHash();
+      window.addEventListener('hashchange', loadFromHash);
+    }
+
+  </script>
+</body>
+
+</html>
